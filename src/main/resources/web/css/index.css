@@ -364,12 +364,17 @@
             font-size: 0.75rem;
         }
 
+        .model-slots { display: none !important; }
+
         .node-badge {
             color: #a78bfa;
             background-color: #2e1065;
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 0.75rem;
+        }
+        .model-node-badge-line {
+            margin-top: 0.15rem;
         }
 
         .model-meta {

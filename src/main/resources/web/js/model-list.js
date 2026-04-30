@@ -353,9 +353,6 @@ function renderModelsList(models) {
             emptyTitle = nodeName ? t('page.model.empty_node_title', '节点 [{name}] 没有模型').replace('{name}', nodeName) : t('page.model.empty_node_title', '节点没有模型');
             emptyText = t('page.model.empty_node_desc', '该远程节点上没有发现模型');
         } else if (nodeFilter === 'local') {
-            emptyTitle = t('page.model.empty_remote_title', '没有远程模型');
-            emptyText = t('page.model.empty_remote_desc', '当前没有配置远程节点');
-        } else if (nodeFilter === 'local') {
             emptyTitle = t('page.model.empty_title', '没有模型');
             emptyText = t('page.model.empty_local_desc', '本机没有发现模型');
             emptyBtn = `<button class="btn btn-primary" onclick="showModelPathSetting()">${t('page.model.empty_action', '去配置')}</button>`;
@@ -444,7 +441,6 @@ function renderModelsList(models) {
                                 ${displayName}
                                 ${model.supportsVision ? '<span class="vision-badge"><i class="fas fa-image"></i></span>' : ''}
                                 ${model.supportsAudio ? '<span class="audio-badge"><i class="fas fa-headphones"></i></span>' : ''}
-                                ${nodeBadge}
                             </div>
                         <div class="model-meta">
                                 <span><i class="fas fa-layer-group"></i> ${architecture}</span>
@@ -452,7 +448,8 @@ function renderModelsList(models) {
                                 <span><i class="fas fa-hdd"></i> ${formatFileSize(model.size)}</span>
                                 ${model.port ? `<span><i class="fas fa-network-wired"></i> ${model.port}</span>` : ''}
                             </div>
-							<span class="model-slots" id="slots-${encodeURIComponent(modelCompositeKey(model.id, model.nodeId))}" style="visibility:${Array.isArray(model.slots) && model.slots.length > 0 ? 'visible' : 'hidden'};">${renderSlotsSquaresInner(model.slots)}</span>
+							<span class="model-slots" id="slots-${encodeURIComponent(modelCompositeKey(model.id, model.nodeId))}" style="display:none;">${renderSlotsSquaresInner(model.slots)}</span>
+							${nodeBadge ? '<div class="model-node-badge-line">' + nodeBadge + '</div>' : ''}
                         </div>
                         <div class="model-status-badge ${statusClass}">
                             <i class="fas ${statusIcon}"></i> <span>${statusText}</span>

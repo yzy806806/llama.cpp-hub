@@ -1261,7 +1261,8 @@
                          	</div>	                        
                         </div>
                         <div class="model-details">
-                            <div class="model-name" title="${model.name}">${displayName}${model.supportsVision ? '<span class="vision-badge"><i class="fas fa-image"></i></span>' : ''}${model.supportsAudio ? '<span class="audio-badge"><i class="fas fa-headphones"></i></span>' : ''}${nodeBadge}</div>
+                            <div class="model-name" title="${model.name}">${displayName}${model.supportsVision ? '<span class="vision-badge"><i class="fas fa-image"></i></span>' : ''}${model.supportsAudio ? '<span class="audio-badge"><i class="fas fa-headphones"></i></span>' : ''}</div>
+                            ${nodeBadge ? '<div class="model-node-badge-line">' + nodeBadge + '</div>' : ''}
                             <div class="model-mobile-actions">
                                 <div class="model-status-badge ${statusClass}">
                                     <i class="fas ${statusIcon}"></i> <span>${statusText}</span>
