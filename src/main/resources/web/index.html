@@ -195,6 +195,25 @@
             #main-usage-report .report-summary { margin:0; }
             #main-usage-report .report-filter { margin:0; }
         }
+        /* HTTPS Setup Guide Markdown */
+        .https-setup-content { font-size:0.8rem; line-height:1.6; color:var(--text-primary); overflow-x:auto; }
+        .https-setup-content h1 { font-size:1.1rem; margin:0.75rem 0 0.5rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border-color); }
+        .https-setup-content h2 { font-size:0.95rem; margin:0.65rem 0 0.4rem; padding-bottom:0.2rem; border-bottom:1px solid var(--border-color); }
+        .https-setup-content h3 { font-size:0.85rem; margin:0.55rem 0 0.35rem; }
+        .https-setup-content p { margin:0.35rem 0; }
+        .https-setup-content ul,.https-setup-content ol { margin:0.25rem 0; padding-left:1.25rem; }
+        .https-setup-content li { margin:0.15rem 0; }
+        .https-setup-content code { font-family:Consolas,'Courier New',monospace; font-size:0.75rem; background:rgba(99,102,241,0.1); padding:0.1rem 0.3rem; border-radius:3px; }
+        .https-setup-content pre { background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:6px; padding:0.6rem; overflow-x:auto; margin:0.4rem 0; }
+        .https-setup-content pre code { background:none; padding:0; border-radius:0; }
+        .https-setup-content table { border-collapse:collapse; width:100%; margin:0.4rem 0; font-size:0.75rem; }
+        .https-setup-content th,.https-setup-content td { border:1px solid var(--border-color); padding:0.3rem 0.5rem; text-align:left; }
+        .https-setup-content th { background:var(--sidebar-bg); font-weight:600; }
+        .https-setup-content hr { border:none; border-top:1px solid var(--border-color); margin:0.75rem 0; }
+        .https-setup-content blockquote { margin:0.35rem 0; padding:0.25rem 0.75rem; border-left:3px solid var(--accent-color); background:rgba(99,102,241,0.04); border-radius:0 4px 4px 0; }
+        .https-setup-content blockquote p { margin:0.15rem 0; }
+        .https-setup-content a { color:var(--accent-color); }
+        .https-setup-content strong { font-weight:600; }
     </style>
 </head>
 <body>
@@ -691,7 +710,6 @@
                                      <label class="form-label" data-i18n="page.settings.https.title">page.settings.https.title</label>
                                      <small class="form-text" data-i18n="page.settings.https.desc">page.settings.https.desc</small>
                                  </div>
-                                 <div class="settings-hint" data-i18n="page.settings.https.hint">page.settings.https.hint</div>
                                 <div class="settings-toggle-list">
                                     <div class="settings-toggle-row">
                                         <div class="settings-toggle-title">
@@ -722,6 +740,11 @@
                                 <div class="settings-actions-row">
                                     <button class="btn btn-primary" id="saveHttpsBtn" data-i18n="common.save">common.save</button>
                                 </div>
+                                <hr style="margin:1rem 0;border-color:var(--border-color);">
+                                <div class="setup-guide-header" style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.5rem;">
+                                    <i class="fas fa-book"></i> <span data-i18n="page.settings.https.setup_guide">page.settings.https.setup_guide</span>
+                                </div>
+                                <div id="httpsSetupDoc" class="https-setup-content"></div>
                             </div>
                         </div>
                     </div>
@@ -1375,6 +1398,7 @@
     <div id="dynamicModalRoot"></div>
     <div class="toast-container" id="toastContainer"></div>
 
+    <script src="js/marked.min.js"></script>
     <script src="js/i18n.js"></script>
     <script src="js/websocket.js"></script>
     <script src="js/console-modal.js"></script>

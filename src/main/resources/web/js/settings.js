@@ -277,6 +277,25 @@
         }
     }
 
+    async function loadHttpsSetupGuide() {
+        const container = byId('httpsSetupDoc');
+        if (!container) return;
+        try {
+            const lang = (window.I18N && window.I18N.lang) || 'zh-CN';
+            const docPath = lang.startsWith('en') ? 'docs/HTTPS_SETUP.en.md' : 'docs/HTTPS_SETUP.zh.md';
+            const resp = await fetch(docPath);
+            if (!resp.ok) { container.textContent = 'Failed to load setup guide'; return; }
+            const md = await resp.text();
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                container.innerHTML = marked.parse(md);
+            } else {
+                container.textContent = md;
+            }
+        } catch (e) {
+            container.textContent = 'Failed to load setup guide';
+        }
+    }
+
     async function saveLogging() {
         const url = byId('toggleLogRequestUrl');
         const header = byId('toggleLogRequestHeader');
@@ -572,6 +591,8 @@
 
         const httpsToggle = byId('toggleHttpsEnabled');
         if (httpsToggle) httpsToggle.addEventListener('change', updateHttpsInputState);
+
+        loadHttpsSetupGuide();
 
         // Logging tab
         const saveLoggingBtn = byId('saveLoggingBtn');

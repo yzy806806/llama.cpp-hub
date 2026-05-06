@@ -115,6 +115,12 @@ keytool -genkeypair -alias llama-cpp-hub \
 - **HTTPS 成功**：`HTTPS证书加载成功: ssl/keystore.p12`，访问地址显示 `https://`
 - **HTTPS 失败**：`HTTPS证书加载失败: ...`，降级为 HTTP
 
+> **客户端证书不是必须的。** 如果嫌配置麻烦，浏览器提示不安全时直接点"继续访问"即可。
+>
+> 虽然缺少证书验证（无法防中间人攻击），但在**局域网/家庭/NAT 环境**下，中间人攻击风险极低。TLS 加密照常生效，流量全程加密，可以防 Wi-Fi 抓包、ISP 窥探等被动嗅探。加密效果和正常 HTTPS 没区别。
+>
+> 如果不能接受浏览器上的"不安全"提示，再按下面的步骤配置客户端信任。
+
 ## 配置客户端信任证书
 
 自签名证书未被操作系统/浏览器信任，需要将 `ca.crt` 导入信任库。
@@ -149,6 +155,18 @@ certutil -addstore -f "ROOT" ssl\ca.crt
 sudo cp ca.crt /usr/local/share/ca-certificates/llama-cpp-hub.crt
 sudo update-ca-certificates
 ```
+
+> **注意：** Firefox 和 Chrome 不使用系统 CA 存储。Firefox 需手动导入（设置 → 隐私与安全 → 证书 → 查看证书 → 导入）。Chrome 使用 NSS 数据库，需要额外导入：
+>
+> ```bash
+> # 安装 certutil（如果尚未安装）
+> sudo apt install libnss3-tools
+>
+> # 导入到当前用户的 NSS 数据库（Chrome 使用）
+> certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "llama-cpp-hub" -i ca.crt
+> ```
+>
+> 导入后**完全关闭** Chrome 进程（`killall chrome`）再重启。仅关闭窗口不够，Chrome 进程常驻后台，证书缓存不会刷新。
 
 ### Java 客户端
 
@@ -216,9 +234,49 @@ keytool -storepasswd -keystore keystore.p12 -storepass 旧密码 -new 新密码
 - 确认已正确导入 `ca.crt` 到**受信任的根证书颁发机构**
 - Windows 确认使用了管理员权限安装
 - macOS 确认在钥匙串中设置为"始终信任"
-- 重启浏览器
+- **Linux（Chrome）：** `update-ca-certificates` 对 Chrome **无效**。Chrome 使用 NSS 数据库，必须执行以下步骤：
+  1. `sudo apt install libnss3-tools`
+  2. `certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "llama-cpp-hub" -i ca.crt`
+  3. `killall chrome`（彻底杀死所有 Chrome 进程，仅关闭窗口不够）
+  4. 重新打开 Chrome
+- **Linux（Firefox）：** `update-ca-certificates` 无效。手动导入：设置 → 隐私与安全 → 证书 → 查看证书 → 导入 → 选择 `ca.crt` → 勾选"信任此 CA 以识别网站"
+- 重启浏览器（Firefox 重启即可；Chrome 必须 `killall chrome` 彻底退出）
 
-### 6. 使用 RSA 而不是 EC 算法
+### 6. 程序客户端直接拒绝连接
+
+自签名证书对浏览器的"不安全"提示还可以点继续，但对很多 HTTP 客户端是**直接拒绝**，不留商量余地。
+
+常见表现：
+
+| 客户端 | 行为 |
+|--------|------|
+| Java `HttpURLConnection` / `HttpClient` | 抛出 `SSLHandshakeException` |
+| Python `requests`（默认） | 抛出 `SSLError` |
+| curl（不加 `-k`） | 返回错误 `SSL certificate problem` |
+| Node.js `fetch` / `https` 模块 | 抛出 `CERT_UNTRUSTED` / `DEPTH_ZERO_SELF_SIGNED_CERT` |
+| Go `http.Client`（默认） | 返回 `x509: certificate is valid for ...` 错误 |
+| .NET `HttpClient`（自动验证） | 抛出 `AuthenticationException` |
+
+这不是 bug，是客户端在严格执行证书链验证。解决方案有三种：
+
+**方案 A：信任该证书**（推荐，一劳永逸）
+将 `ca.crt` 导入客户端的信任存储（参考上面的 Java 客户端 / Linux / Windows 章节）。适用于长期使用的场景。
+
+**方案 B：跳过验证**（快速开发测试）
+- curl：加 `-k` 或 `--insecure`
+- Python：`requests.get(url, verify=False)`
+- Java：自定义 `TrustManager` 信任所有证书
+- Node.js：`process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'`
+
+**方案 C：不用自签名，上正经证书**
+如果你觉得上述方案都太折腾，或者希望真·零警告运行，建议放弃 HTTPS 自签名方案，改用 HTTP + 反向代理（nginx / Caddy）：
+1. 本项目的 HTTPS 保持关闭
+2. 用 nginx 反向代理到本地的 HTTP 端口（8080）
+3. 通过 Let's Encrypt / acme.sh 申请免费受信证书，自动续期
+
+这样既支持域名绑定，客户端也不会报任何证书错误。对于局域网环境，也可搭配 `nip.io` 这类泛域名解析服务，无需拥有域名即可绑定 Let's Encrypt 证书。
+
+### 7. 使用 RSA 而不是 EC 算法
 
 如果不使用椭圆曲线，可以改用 RSA：
 
