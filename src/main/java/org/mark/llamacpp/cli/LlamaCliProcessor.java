@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 import org.mark.llamacpp.server.LlamaCppProcess;
 
 /**
- * 	用来运行CLI。转移到{@link LlamaCppProcess}
+ * 	用来运行CLI。转移到{@link LlamaCppProcessOld}
  */
 @Deprecated
 public class LlamaCliProcessor {

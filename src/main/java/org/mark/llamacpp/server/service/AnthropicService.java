@@ -46,7 +46,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
-import org.mark.llamacpp.server.LlamaCppProcessFix;
+import org.mark.llamacpp.server.LlamaCppProcess;
 
 /**
  * 	Anthropic API
@@ -123,7 +123,7 @@ public class AnthropicService {
         JsonObject response = new JsonObject();
         JsonArray data = new JsonArray();
         
-        Map<String, LlamaCppProcessFix> processes = manager.getLoadedProcesses();
+        Map<String, LlamaCppProcess> processes = manager.getLoadedProcesses();
         for (String modelId : processes.keySet()) {
             JsonObject model = new JsonObject();
             model.addProperty("type", "model");

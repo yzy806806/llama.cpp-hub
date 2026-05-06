@@ -10,162 +10,87 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-
-
 /**
- * 	llamacpp进程
+ * 	llamacpp进程 — Fix 版本。
+ * 	对比老版本的做了这些修改：<br>
+ * 	
+ * 	1. reader 线程改用虚拟线程 (Thread.ofVirtual())，不占用平台线程
+ * 	2. stop() 中显式关闭 stdwriter + 子进程 stdout/stderr 流，避免 SIGPIPE + 让 readLine() 立即返回
+ * 	3. outputHandler.accept() 包裹 try-catch，防止异常穿透杀死 reader 线程
+ * 	4. error 线程和 output 线程的异常处理对称，不再吞没异常
+ * 	5. send() 写入后 flush()，确保数据及时送达
+ * 	6. 提取 closeQuietly() / joinThread() 辅助方法，消除重复样板
  */
 public class LlamaCppProcess {
-	
-	/**
-	 * 	日志打印机
-	 */
+
 	private static final Logger logger = LoggerFactory.getLogger(LlamaCppProcess.class);
 	private static final Logger RAW_PROCESS_LOGGER = LoggerFactory.getLogger("LLAMA_CPP_RAW");
-	
-	
-	/**
-	 * 	这个进程的名字。是唯一的。
-	 */
-	private final String name;
-	
-	/**
-	 * 	这个进程的启动命令。参考：/home/mark/llama.cpp-master/llama-server -m path -fa 1 -c 65536
-	 */
-	private final String cmd;
 
-	/**
-	 * 	启动该进程后获得的pid号。
-	 */
-	private long pid;
-	
-	/**
-	 * 	进程对象
-	 */
-	private Process process;
-	
-	/**
-	 * 	异步执行线程对象
-	 */
-	private Thread outputThread;
-	
-	/**
-	 * 	错误输出线程对象
-	 */
-	private Thread errorThread;
-	
-	/**
-	 * 	进程是否正在运行
-	 */
-	private final AtomicBoolean isRunning = new AtomicBoolean(false);
-	
-	/**
-	 * 	输出处理器
-	 */
-	private Consumer<String> outputHandler;
-	
-	/**
-	 * 	程序启动后的输入流
-	 */
-	private BufferedWriter stdwriter;
-	
-	/**
-	 * 	运行时设置的上下文。
-	 */
-	private int ctxSize;
-	
-	/**
-	 * 	并发数
-	 */
-	private int slotNum;
-	
-	/**
-	 * 	llamacpp进程的路径，没啥用途，主要为了定位。
-	 */
+	private final String name;
+	private final String cmd;
 	private final String llamaBinPath;
-	
-	/**
-	 * 	构造器。
-	 * @param name 进程名称
-	 * @param cmd 启动命令
-	 * @param llamaBinPath llamacpp路径
-	 */
+	private long pid;
+	private Process process;
+	private Thread outputThread;
+	private Thread errorThread;
+	private final AtomicBoolean isRunning = new AtomicBoolean(false);
+	private Consumer<String> outputHandler;
+	private BufferedWriter stdwriter;
+	private int ctxSize;
+	private int slotNum;
+
 	public LlamaCppProcess(String name, String cmd, String llamaBinPath) {
 		this.name = name;
 		this.cmd = cmd;
 		this.llamaBinPath = llamaBinPath;
 	}
-	
-	/**
-	 * 	获取llamacpp路径
-	 * @return
-	 */
+
 	public String getLlamaBinPath() {
 		return this.llamaBinPath;
 	}
-	
-	/**
-	 * 设置输出处理器
-	 * @param outputHandler 输出处理器
-	 */
+
 	public void setOutputHandler(Consumer<String> outputHandler) {
 		this.outputHandler = outputHandler;
 	}
-	
-	/**
-	 * 	在模型加载成功后调用。
-	 * @param ctxSize
-	 */
+
 	public void setCtxSize(int ctxSize) {
 		this.ctxSize = ctxSize;
 	}
-	
-	/**
-	 * 	获取模型加载后实际的上下文长度。
-	 * @return
-	 */
+
 	public int getCtxSize() {
 		return this.ctxSize;
 	}
-	
-	/**
-	 * 	
-	 * @param slotNum
-	 */
+
 	public void setSlotNum(int slotNum) {
 		this.slotNum = slotNum;
 	}
-	
-	/**
-	 * 	
-	 * @return
-	 */
+
 	public int getSlotNum() {
 		return this.slotNum;
 	}
-	
+
 	/**
 	 * 	写入输入内容
-	 * @param cmd
 	 */
 	public synchronized void send(String cmd) {
+		if (this.stdwriter == null) return;
 		try {
-			if(this.stdwriter != null) {
-				this.stdwriter.write(cmd);
-			}
-		}catch (Exception e) {
-			e.printStackTrace();
+			this.stdwriter.write(cmd);
+			this.stdwriter.flush();
+		} catch (IOException e) {
+			logger.warn("写入进程 stdin 失败: {}", e.getMessage());
 		}
 	}
-	
+
 	/**
-	 * 异步启动进程
+	 * 	异步启动进程
 	 * @return 是否启动成功
 	 */
 	public synchronized boolean start() {
@@ -174,23 +99,17 @@ public class LlamaCppProcess {
 		}
 
 		try {
-			// 使用 ProcessBuilder 启动进程，可以继承环境变量并添加新的路径
 			List<String> args = splitCommandLineArgs(cmd);
 			ProcessBuilder pb = new ProcessBuilder(args);
 
-			// 获取并修改环境变量
 			Map<String, String> env = pb.environment();
-
-			// 保留原有的 LD_LIBRARY_PATH
 			String existingLdPath = env.get("LD_LIBRARY_PATH");
 
-			// 追加 llama-server 目录和 ROCm 库路径
 			StringBuilder ldPathBuilder = new StringBuilder();
 			if (this.llamaBinPath != null && !this.llamaBinPath.isEmpty()) {
 				ldPathBuilder.append(this.llamaBinPath);
 			}
 
-			// ROCm 7.2 库路径
 			String[] rocmPaths = {
 				"/opt/rocm-7.2.0/lib",
 				"/opt/rocm-7.2.0/lib64",
@@ -208,7 +127,6 @@ public class LlamaCppProcess {
 				ldPathBuilder.append(rocmPath);
 			}
 
-			// 追加原有路径
 			if (existingLdPath != null && !existingLdPath.isEmpty()) {
 				if (ldPathBuilder.length() > 0) {
 					ldPathBuilder.append(":");
@@ -221,34 +139,170 @@ public class LlamaCppProcess {
 			this.process = pb.start();
 			logger.info("llama-server 进程已启动");
 
-			// 等待进程初始化
 			try {
 				Thread.sleep(500);
 			} catch (InterruptedException e) {
-				// ignore
+				Thread.currentThread().interrupt();
 			}
 
-			// 获取PID (Java 9+ 提供了getPid方法)
-			// 获取输入流
 			try {
 				this.pid = this.process.pid();
 				this.stdwriter = new BufferedWriter(new OutputStreamWriter(this.process.getOutputStream(), StandardCharsets.UTF_8));
 			} catch (Exception e) {
-				e.printStackTrace();
-				// 如果获取不到PID，使用一个默认值
+				logger.error("获取进程 PID 或输出流失败", e);
 				this.pid = -1;
 			}
 
 			this.isRunning.set(true);
-
-			// 启动输出读取线程
 			this.startOutputReaders();
-
 			return true;
+
 		} catch (IOException e) {
 			logger.error("启动 llama-server 失败: {}", e.getMessage());
-			e.printStackTrace();
 			return false;
+		}
+	}
+
+	/**
+	 * 	停止进程 — Fix 版本。
+	 * 	
+	 * 	改进点：
+	 * 	- 先关闭 stdwriter，防止 SIGPIPE
+	 * 	- 显式关闭子进程的 stdout/stderr 流，让 reader 线程的 readLine() 立即退出
+	 * 	- destroyForcibly 后追加 waitFor(1) 确保进程真正回收
+	 */
+	public synchronized boolean stop() {
+		if (!this.isRunning.getAndSet(false)) {
+			return false;
+		}
+
+		// 1. 关闭 stdin writer — 防止向已死进程写入时触发 SIGPIPE
+		closeQuietly(this.stdwriter);
+		this.stdwriter = null;
+
+		if (this.process != null) {
+			// 2. 主动关闭子进程的输出流（即 Java 端的输入流），
+			//    让 reader 线程的 readLine() 立即收到 EOF / IOException，而非永久阻塞
+			closeQuietly(this.process.getInputStream());
+			closeQuietly(this.process.getErrorStream());
+
+			// 3. 优雅终止
+			this.process.destroy();
+
+			try {
+				if (!this.process.waitFor(5, TimeUnit.SECONDS)) {
+					this.process.destroyForcibly();
+					this.process.waitFor(1, TimeUnit.SECONDS);
+				}
+			} catch (InterruptedException e) {
+				this.process.destroyForcibly();
+				Thread.currentThread().interrupt();
+			}
+		}
+
+		// 4. 等待 reader 线程（流已关闭，readLine 应快速返回）
+		joinThread(this.outputThread, 2000);
+		joinThread(this.errorThread, 2000);
+
+		return true;
+	}
+
+	// ========================================================================
+	// Reader 线程 — 用虚拟线程
+	// ========================================================================
+
+	private void startOutputReaders() {
+		Consumer<String> safeHandler = line -> {
+			if (this.outputHandler != null) {
+				try {
+					this.outputHandler.accept(line);
+				} catch (Exception e) {
+					logger.error("outputHandler 抛出异常: {}", e.getMessage());
+				}
+			}
+			if (!line.contains("update_slots") && !line.contains("log_server_r")) {
+				RAW_PROCESS_LOGGER.info(line);
+			}
+		};
+
+		this.outputThread = Thread.ofVirtual().name("llama-out-" + name).start(() -> {
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.process.getInputStream()))) {
+				String line;
+				while ((line = reader.readLine()) != null && this.isRunning.get()) {
+					safeHandler.accept(line);
+				}
+			} catch (IOException e) {
+				// 流关闭导致的异常，只在真正运行中时警告
+				if (this.isRunning.get()) {
+					logger.warn("读取进程输出流时发生错误: {}", e.getMessage());
+				}
+			}
+		});
+
+		this.errorThread = Thread.ofVirtual().name("llama-err-" + name).start(() -> {
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.process.getErrorStream()))) {
+				String line;
+				while ((line = reader.readLine()) != null && this.isRunning.get()) {
+					safeHandler.accept(line);
+				}
+			} catch (IOException e) {
+				if (this.isRunning.get()) {
+					logger.warn("读取进程错误流时发生错误: {}", e.getMessage());
+				}
+			}
+		});
+	}
+
+	// ========================================================================
+	// Getters
+	// ========================================================================
+
+	public String getName() {
+		return this.name;
+	}
+
+	public String getCmd() {
+		return this.cmd;
+	}
+
+	public long getPid() {
+		return this.pid;
+	}
+
+	public boolean isRunning() {
+		return this.isRunning.get() && this.process != null && this.process.isAlive();
+	}
+
+	public Process getProcess() {
+		return this.process;
+	}
+
+	public Integer getExitCode() {
+		if (this.process != null && !this.process.isAlive()) {
+			return this.process.exitValue();
+		}
+		return null;
+	}
+
+	// ========================================================================
+	// 静态辅助
+	// ========================================================================
+
+	private static void closeQuietly(java.io.Closeable closeable) {
+		if (closeable != null) {
+			try {
+				closeable.close();
+			} catch (IOException ignored) {
+			}
+		}
+	}
+
+	private static void joinThread(Thread thread, long timeoutMillis) {
+		if (thread == null) return;
+		try {
+			thread.join(timeoutMillis);
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
 		}
 	}
 
@@ -323,152 +377,5 @@ public class LlamaCppProcess {
 	private static boolean isWindows() {
 		String os = System.getProperty("os.name");
 		return os != null && os.toLowerCase(Locale.ROOT).contains("win");
-	}
-	
-	/**
-	 * 启动输出读取线程
-	 */
-	private void startOutputReaders() {
-		// 标准输出读取线程
-		this.outputThread = new Thread(() -> {
-			try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.process.getInputStream()))) {
-				String line;
-				while ((line = reader.readLine()) != null && this.isRunning.get()) {
-					// 将输出的内容转给处理器
-					if (this.outputHandler != null) {
-						this.outputHandler.accept(line);
-					}
-					if(!line.contains("update_slots") && !line.contains("log_server_r")) {
-						RAW_PROCESS_LOGGER.info(line);
-					}
-				}
-			} catch (IOException e) {
-				if (this.isRunning.get() && this.outputThread != null) {
-					this.outputHandler.accept("读取输出时发生错误: " + e.getMessage());
-				}
-			}
-		});
-		this.outputThread.setDaemon(true);
-		this.outputThread.start();
-
-		// 错误输出读取线程 - llama-server 所有输出都在 stderr
-		this.errorThread = new Thread(() -> {
-			try (BufferedReader reader = new BufferedReader(new InputStreamReader(this.process.getErrorStream()))) {
-				String line;
-				while ((line = reader.readLine()) != null && this.isRunning.get()) {
-					// 将错误输出也传递给处理器
-					if (this.outputHandler != null) {
-						this.outputHandler.accept(line);
-					}
-					if(!line.contains("update_slots") && !line.contains("log_server_r")) {
-						RAW_PROCESS_LOGGER.info(line);
-					}
-				}
-			} catch (IOException e) {
-				// 忽略错误
-			}
-		});
-		this.errorThread.setDaemon(true);
-		this.errorThread.start();
-	}
-	
-	
-	
-	/**
-	 * 停止进程
-	 * @return 是否停止成功
-	 */
-	public synchronized boolean stop() {
-		if (!this.isRunning.get()) {
-			return false;
-		}
-		
-		this.isRunning.set(false);
-		
-		if (this.process != null) {
-			this.process.destroy();
-			
-			try {
-				// 等待进程结束
-				if (!this.process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
-					this.process.destroyForcibly();
-				}
-			} catch (InterruptedException e) {
-				this.process.destroyForcibly();
-				Thread.currentThread().interrupt();
-			}
-		}
-		
-		// 等待输出线程结束
-		if (this.outputThread != null) {
-			try {
-				this.outputThread.interrupt();
-				this.outputThread.join(1000);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
-		}
-		
-		if (this.errorThread != null) {
-			try {
-				this.errorThread.interrupt();
-				this.errorThread.join(1000);
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-			}
-		}
-		
-		return true;
-	}
-	
-	/**
-	 * 获取进程名称
-	 * @return 进程名称
-	 */
-	public String getName() {
-		return this.name;
-	}
-	
-	/**
-	 * 获取启动命令
-	 * @return 启动命令
-	 */
-	public String getCmd() {
-		return this.cmd;
-	}
-	
-	/**
-	 * 获取进程PID
-	 * @return 进程PID，如果获取失败返回-1
-	 */
-	public long getPid() {
-		return this.pid;
-	}
-	
-	/**
-	 * 检查进程是否正在运行
-	 * @return 是否正在运行
-	 */
-	public boolean isRunning() {
-		return this.isRunning.get() && this.process != null && this.process.isAlive();
-	}
-	
-	/**
-	 * 	获取进程
-	 * @return
-	 */
-	public Process getProcess() {
-		return this.process;
-	}
-	
-	/**
-	 * 获取进程退出码
-	 * @return 进程退出码，如果进程仍在运行返回null
-	 */
-	public Integer getExitCode() {
-		if (this.process != null && !this.process.isAlive()) {
-			return this.process.exitValue();
-		}
-		return null;
 	}
 }

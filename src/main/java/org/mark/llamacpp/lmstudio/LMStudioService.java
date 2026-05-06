@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
 
 import org.mark.llamacpp.gguf.GGUFMetaData;
 import org.mark.llamacpp.gguf.GGUFModel;
-import org.mark.llamacpp.server.LlamaCppProcessFix;
+import org.mark.llamacpp.server.LlamaCppProcess;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
 import org.mark.llamacpp.server.exception.RequestMethodException;
@@ -107,11 +107,11 @@ public class LMStudioService {
 				}
 			}
 			LlamaServerManager manager = LlamaServerManager.getInstance();
-			Map<String, LlamaCppProcessFix> loadedProcesses = manager.getLoadedProcesses();
+			Map<String, LlamaCppProcess> loadedProcesses = manager.getLoadedProcesses();
 			List<GGUFModel> allModels = manager.listModel();
 			List<Map<String, Object>> data = new ArrayList<>();
 
-			for (Map.Entry<String, LlamaCppProcessFix> entry : loadedProcesses.entrySet()) {
+			for (Map.Entry<String, LlamaCppProcess> entry : loadedProcesses.entrySet()) {
 				String modelId = entry.getKey();
 				if (trimmedModelIdFilter != null && !trimmedModelIdFilter.equals(modelId)) {
 					continue;
@@ -1455,7 +1455,7 @@ public class LMStudioService {
 	private static JsonObject buildModelInfo(String modelName) {
 		JsonObject info = new JsonObject();
 		LlamaServerManager manager = LlamaServerManager.getInstance();
-		LlamaCppProcessFix proc = manager.getLoadedProcesses().get(modelName);
+		LlamaCppProcess proc = manager.getLoadedProcesses().get(modelName);
 		GGUFModel found = null;
 		for (GGUFModel m : manager.listModel()) {
 			if (m == null) continue;

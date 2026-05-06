@@ -102,11 +102,11 @@ public class LlamaServerManager {
 	/**
 	 * 已加载的模型进程列表
 	 */
-	private Map<String, LlamaCppProcessFix> loadedProcesses = new LinkedHashMap<>();
+	private Map<String, LlamaCppProcess> loadedProcesses = new LinkedHashMap<>();
 	
 	private final Object processLock = new Object();
 	
-	private Map<String, LlamaCppProcessFix> loadingProcesses = new HashMap<>();
+	private Map<String, LlamaCppProcess> loadingProcesses = new HashMap<>();
 	
 	private Map<String, Future<?>> loadingTasks = new HashMap<>();
 	
@@ -809,7 +809,7 @@ public class LlamaServerManager {
 	 * 获取已加载的模型进程列表
 	 * @return 已加载的模型进程列表
 	 */
-	public Map<String, LlamaCppProcessFix> getLoadedProcesses() {
+	public Map<String, LlamaCppProcess> getLoadedProcesses() {
 		synchronized (this.processLock) {
 			return new HashMap<>(this.loadedProcesses);
 		}
@@ -824,7 +824,7 @@ public class LlamaServerManager {
 			if (this.loadedProcesses.isEmpty()) {
 				return null;
 			}
-			Map.Entry<String, LlamaCppProcessFix> firstEntry = this.loadedProcesses.entrySet().iterator().next();
+			Map.Entry<String, LlamaCppProcess> firstEntry = this.loadedProcesses.entrySet().iterator().next();
 			return firstEntry.getKey();
 		}
 	}
@@ -835,7 +835,7 @@ public class LlamaServerManager {
 	 * @return
 	 */
 	public String getModelStartCmd(String modelId) {
-		LlamaCppProcessFix process;
+		LlamaCppProcess process;
 		synchronized (this.processLock) {
 			process = this.loadedProcesses.get(modelId);
 		}
@@ -861,7 +861,7 @@ public class LlamaServerManager {
 	 */
 	public boolean stopModel(String modelId) {
 		String id = modelId == null ? "" : modelId.trim();
-		LlamaCppProcessFix process;
+		LlamaCppProcess process;
 		Future<?> task;
 		synchronized (this.processLock) {
 			process = this.loadedProcesses.get(id);
@@ -1024,7 +1024,7 @@ public class LlamaServerManager {
 			int port = this.getNextAvailablePort();
 			String commandStr = this.buildCommandStr(targetModel, port, llamaBinPath, device, mg, enableVision, cmd, extraParams, chatTemplateFilePath);
 			String processName = "llama-server-" + modelId;
-			LlamaCppProcessFix process = new LlamaCppProcessFix(processName, commandStr, llamaBinPath);
+			LlamaCppProcess process = new LlamaCppProcess(processName, commandStr, llamaBinPath);
 
 			logger.info("启动命令：{}", commandStr);
 
@@ -1711,13 +1711,13 @@ public class LlamaServerManager {
 	 */
 	public void shutdownAll() {
 		logger.info("开始停止所有模型进程...");
-		Map<String, LlamaCppProcessFix> processes;
+		Map<String, LlamaCppProcess> processes;
 		synchronized (this.processLock) {
 			processes = new HashMap<>(this.loadedProcesses);
 		}
-		for (Map.Entry<String, LlamaCppProcessFix> entry : processes.entrySet()) {
+		for (Map.Entry<String, LlamaCppProcess> entry : processes.entrySet()) {
 			String modelId = entry.getKey();
-			LlamaCppProcessFix process = entry.getValue();
+			LlamaCppProcess process = entry.getValue();
 
 			logger.info("正在停止模型进程: {}", modelId);
 			boolean stopped = process.stop();
