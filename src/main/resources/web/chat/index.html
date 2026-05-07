@@ -586,7 +586,7 @@
         .replace(/'/g, '&#39;');
     }
 
-    const MATH_TOKEN_PREFIX = 'LLAMA_MATH_TOKEN_';
+    const MATH_TOKEN_PREFIX = 'LLAMAMATHTOKEN';
     let mathJaxLoading = false;
     let mathJaxLoadAttempt = 0;
     let mathTypesetTimer = 0;
@@ -676,7 +676,7 @@
     }
 
     function createMathToken(kind, formula, store) {
-      const token = MATH_TOKEN_PREFIX + store.length + '__';
+      const token = MATH_TOKEN_PREFIX + String(store.length) + 'END';
       store.push({
         token,
         kind,
