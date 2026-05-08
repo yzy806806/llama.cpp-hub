@@ -141,6 +141,7 @@
 
         container.innerHTML = sorted.map((d) => {
             const taskId = d && d.taskId != null ? String(d.taskId) : '';
+            const nodeId = d && d.nodeId != null ? String(d.nodeId) : '';
             const fileName = d && d.fileName != null ? String(d.fileName) : (d && d.url ? String(d.url).split('/').pop() : '');
             const st = statusMeta(d && d.state);
             const total = d && d.totalBytes != null ? Number(d.totalBytes) : 0;
@@ -156,9 +157,9 @@
             const canPause = st.code === 'DOWNLOADING';
             const actions = `
                 <div style="display:flex; gap:0.5rem; margin-left:auto;">
-                    ${canPause ? `<button class="btn btn-secondary btn-sm" data-dl-act="pause" data-dl-id="${escapeHtml(taskId)}"><i class="fas fa-pause"></i></button>` : ''}
-                    ${canResume ? `<button class="btn btn-primary btn-sm" data-dl-act="resume" data-dl-id="${escapeHtml(taskId)}"><i class="fas fa-play"></i></button>` : ''}
-                    <button class="btn btn-danger btn-sm" data-dl-act="delete" data-dl-id="${escapeHtml(taskId)}"><i class="fas fa-trash"></i></button>
+                    ${canPause ? `<button class="btn btn-secondary btn-sm" data-dl-act="pause" data-dl-id="${escapeHtml(taskId)}" data-dl-node="${escapeHtml(nodeId)}"><i class="fas fa-pause"></i></button>` : ''}
+                    ${canResume ? `<button class="btn btn-primary btn-sm" data-dl-act="resume" data-dl-id="${escapeHtml(taskId)}" data-dl-node="${escapeHtml(nodeId)}"><i class="fas fa-play"></i></button>` : ''}
+                    <button class="btn btn-danger btn-sm" data-dl-act="delete" data-dl-id="${escapeHtml(taskId)}" data-dl-node="${escapeHtml(nodeId)}"><i class="fas fa-trash"></i></button>
                 </div>
             `;
 
@@ -368,27 +369,27 @@
             .then((r) => r.json());
     }
 
-    function pause(taskId) {
+    function pause(taskId, nodeId) {
         return fetch('/api/downloads/pause', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         }).then((r) => r.json());
     }
 
-    function resume(taskId) {
+    function resume(taskId, nodeId) {
         return fetch('/api/downloads/resume', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         }).then((r) => r.json());
     }
 
-    function del(taskId) {
+    function del(taskId, nodeId) {
         return fetch('/api/downloads/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         }).then((r) => r.json());
     }
 
@@ -435,20 +436,21 @@
                 if (!btn) return;
                 const act = btn.getAttribute('data-dl-act');
                 const taskId = btn.getAttribute('data-dl-id');
+                const nodeId = btn.getAttribute('data-dl-node') || '';
                 if (!taskId) return;
                 if (act === 'pause') {
-                    pause(taskId).then((data) => {
+                    pause(taskId, nodeId).then((data) => {
                         if (data && data.success) showToast(t('toast.success', '成功'), t('download.toast.paused', '已暂停'), 'success');
                         else showToast(t('toast.error', '错误'), (data && data.error) ? data.error : t('download.toast.pause_failed', '暂停失败'), 'error');
                     });
                 } else if (act === 'resume') {
-                    resume(taskId).then((data) => {
+                    resume(taskId, nodeId).then((data) => {
                         if (data && data.success) showToast(t('toast.success', '成功'), t('download.toast.resumed', '已恢复'), 'success');
                         else showToast(t('toast.error', '错误'), (data && data.error) ? data.error : t('download.toast.resume_failed', '恢复失败'), 'error');
                     });
                 } else if (act === 'delete') {
                     if (!confirm(t('confirm.download.delete', '确定要删除这个下载任务吗？'))) return;
-                    del(taskId).then((data) => {
+                    del(taskId, nodeId).then((data) => {
                         if (data && data.success) {
                             showToast(t('toast.success', '成功'), t('download.toast.deleted', '已删除'), 'success');
                             refresh();

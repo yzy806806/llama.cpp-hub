@@ -282,28 +282,29 @@
 
             let actionButtons = '';
             const taskId = download && download.taskId ? String(download.taskId) : '';
+            const nodeId = download && download.nodeId ? String(download.nodeId) : '';
             if (taskId) {
                 if (status === 'DOWNLOADING') {
                     actionButtons = `
-                        <button class="btn-icon" onclick="DownloadManager.pauseDownload('${taskId}')" title="${escapeHtml(t('download.action.pause', '暂停'))}">
+                        <button class="btn-icon" onclick="DownloadManager.pauseDownload('${taskId}', '${nodeId}')" title="${escapeHtml(t('download.action.pause', '暂停'))}">
                             <i class="fas fa-pause"></i>
                         </button>
-                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}')" title="${escapeHtml(t('common.delete', '删除'))}">
+                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}', '${nodeId}')" title="${escapeHtml(t('common.delete', '删除'))}">
                             <i class="fas fa-trash"></i>
                         </button>
                     `;
                 } else if (status === 'IDLE' || status === 'FAILED' || status === 'PAUSED') {
                     actionButtons = `
-                        <button class="btn-icon primary" onclick="DownloadManager.resumeDownload('${taskId}')" title="${escapeHtml(t('download.action.resume', '恢复'))}">
+                        <button class="btn-icon primary" onclick="DownloadManager.resumeDownload('${taskId}', '${nodeId}')" title="${escapeHtml(t('download.action.resume', '恢复'))}">
                             <i class="fas fa-play"></i>
                         </button>
-                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}')" title="${escapeHtml(t('common.delete', '删除'))}">
+                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}', '${nodeId}')" title="${escapeHtml(t('common.delete', '删除'))}">
                             <i class="fas fa-trash"></i>
                         </button>
                     `;
                 } else if (status === 'COMPLETED') {
                     actionButtons = `
-                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}')" title="${escapeHtml(t('common.delete', '删除'))}">
+                        <button class="btn-icon danger" onclick="DownloadManager.deleteDownload('${taskId}', '${nodeId}')" title="${escapeHtml(t('common.delete', '删除'))}">
                             <i class="fas fa-trash"></i>
                         </button>
                     `;
@@ -321,7 +322,6 @@
             const targetPathText = download && download.targetPath ? String(download.targetPath) : '';
             const urlText = download && download.url ? String(download.url) : '';
             const fullPathText = joinPath(targetPathText, download && download.fileName ? String(download.fileName) : '');
-            const nodeId = download && download.nodeId ? String(download.nodeId) : '';
             const nodeName = download && download.nodeName ? String(download.nodeName) : nodeId;
             const isRemote = nodeId && nodeId !== 'local';
             const nodeColor = isRemote ? (typeof getNodeColor === 'function' ? getNodeColor(nodeId) : '0') : '';
@@ -625,11 +625,11 @@
         });
     }
 
-    function pauseDownload(taskId) {
+    function pauseDownload(taskId, nodeId) {
         fetch('/api/downloads/pause', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         })
         .then(response => response.json())
         .then(data => {
@@ -641,11 +641,11 @@
         });
     }
 
-    function resumeDownload(taskId) {
+    function resumeDownload(taskId, nodeId) {
         fetch('/api/downloads/resume', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         })
         .then(response => response.json())
         .then(data => {
@@ -657,13 +657,13 @@
         });
     }
 
-    function deleteDownload(taskId) {
+    function deleteDownload(taskId, nodeId) {
         if (!confirm(t('confirm.download.delete', '确定要删除这个下载任务吗？'))) return;
 
         fetch('/api/downloads/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId })
+            body: JSON.stringify({ taskId, nodeId: nodeId || '' })
         })
         .then(response => response.json())
         .then(data => {

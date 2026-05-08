@@ -398,6 +398,18 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 	private void handlePauseDownload(ChannelHandlerContext ctx, FullHttpRequest request) {
 		try {
 			String content = request.content().toString(CharsetUtil.UTF_8);
+			com.google.gson.JsonObject json = JsonUtil.fromJson(content, com.google.gson.JsonObject.class);
+			if (json != null) {
+				String nodeId = JsonUtil.getJsonString(json, "nodeId");
+				if (!nodeId.isEmpty() && !"local".equals(nodeId)) {
+					json.remove("nodeId");
+					NodeManager.HttpResult result = NodeManager.getInstance()
+							.callRemoteApi(nodeId, "POST", "api/downloads/pause", json);
+					NodeManager.writeHttpResultToChannel(ctx, result, "download");
+					return;
+				}
+			}
+
 			@SuppressWarnings("unchecked")
 			java.util.Map<String, Object> requestData = JsonUtil.fromJson(content, java.util.Map.class);
 
@@ -427,6 +439,18 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 	private void handleResumeDownload(ChannelHandlerContext ctx, FullHttpRequest request) {
 		try {
 			String content = request.content().toString(CharsetUtil.UTF_8);
+			com.google.gson.JsonObject json = JsonUtil.fromJson(content, com.google.gson.JsonObject.class);
+			if (json != null) {
+				String nodeId = JsonUtil.getJsonString(json, "nodeId");
+				if (!nodeId.isEmpty() && !"local".equals(nodeId)) {
+					json.remove("nodeId");
+					NodeManager.HttpResult result = NodeManager.getInstance()
+							.callRemoteApi(nodeId, "POST", "api/downloads/resume", json);
+					NodeManager.writeHttpResultToChannel(ctx, result, "download");
+					return;
+				}
+			}
+
 			@SuppressWarnings("unchecked")
 			java.util.Map<String, Object> requestData = JsonUtil.fromJson(content, java.util.Map.class);
 
@@ -456,6 +480,18 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 	private void handleDeleteDownload(ChannelHandlerContext ctx, FullHttpRequest request) {
 		try {
 			String content = request.content().toString(CharsetUtil.UTF_8);
+			com.google.gson.JsonObject json = JsonUtil.fromJson(content, com.google.gson.JsonObject.class);
+			if (json != null) {
+				String nodeId = JsonUtil.getJsonString(json, "nodeId");
+				if (!nodeId.isEmpty() && !"local".equals(nodeId)) {
+					json.remove("nodeId");
+					NodeManager.HttpResult result = NodeManager.getInstance()
+							.callRemoteApi(nodeId, "POST", "api/downloads/delete", json);
+					NodeManager.writeHttpResultToChannel(ctx, result, "download");
+					return;
+				}
+			}
+
 			@SuppressWarnings("unchecked")
 			java.util.Map<String, Object> requestData = JsonUtil.fromJson(content, java.util.Map.class);
 
