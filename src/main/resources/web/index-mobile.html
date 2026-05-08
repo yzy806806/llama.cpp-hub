@@ -627,13 +627,6 @@
             <div class="modal-body" style="display:flex; flex-direction:column; padding: 0; overflow:hidden; min-height:0;">
                 <div style="display:flex; flex-wrap: wrap; align-items:center; gap: 0.75rem; padding: 0.75rem; border-bottom: 1px solid var(--border-color); background: #f8f9fa;">
                     <button class="btn btn-secondary btn-sm" id="refreshConsoleBtn"><i class="fas fa-sync-alt"></i> 刷新</button>
-                    <label style="display:inline-flex; align-items:center; gap:6px; font-size: 0.9rem;">
-                        <input type="checkbox" id="autoRefreshConsole"> 自动刷新
-                    </label>
-                    <label style="display:inline-flex; align-items:center; gap:6px; font-size: 0.9rem;">
-                        间隔(ms)
-                        <input class="form-control" type="number" id="intervalConsoleInput" value="2000" min="500" style="width:100px; padding: 4px 8px;">
-                    </label>
                     <div id="consoleStatusText" style="font-size: 0.85rem; color: var(--text-secondary); margin-left:auto;"></div>
                 </div>
                 <div id="logContainer" style="flex:1; min-height:0; overflow:auto; padding: 0.75rem; background: #0b1220;">
@@ -780,6 +773,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             initWebSocket();
+            fetchRemoteNodes();
             let didInit = false;
             function initOnce() {
                 if (didInit) return;

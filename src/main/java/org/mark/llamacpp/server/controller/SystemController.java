@@ -1090,9 +1090,20 @@ public class SystemController implements BaseController {
 	 * @throws RequestMethodException 
 	 */
 	private void handleSysConsoleRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		// 断言一下请求方式
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
 		try {
+			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+			String nodeId = params.get("nodeId");
+			if (nodeId != null && !nodeId.isBlank() && !"local".equals(nodeId)) {
+				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
+						nodeId, "GET", "api/sys/console", null);
+				if (result.isSuccess()) {
+					LlamaServer.sendTextResponse(ctx, result.getBody());
+				} else {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error("远程节点调用失败: code=" + result.getStatusCode()));
+				}
+				return;
+			}
 			LlamaServer.sendTextResponse(ctx, LlamaServer.getConsoleBufferText());
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("读取控制台日志失败: " + e.getMessage()));

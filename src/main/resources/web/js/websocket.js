@@ -4,6 +4,20 @@ const reconnectInterval = 1000;
 const wsDecoder = new TextDecoder('utf-8');
 let reconnectTimer = null;
 
+window.remoteNodes = [];
+
+async function fetchRemoteNodes() {
+    try {
+        const resp = await fetch('/api/node/list');
+        const result = await resp.json();
+        if (result && result.success && Array.isArray(result.data)) {
+            window.remoteNodes = result.data;
+        }
+    } catch (e) {
+        console.error('获取远程节点列表失败:', e);
+    }
+}
+
 function triggerModelListLoad() {
     if (typeof loadModels !== 'function') return;
     if (window.I18N) {
@@ -65,8 +79,7 @@ function handleWebSocketMessage(message) {
                 case 'model_busy': handleModelBusyEvent(data); break;
                 case 'console':
                     {
-                        const consoleMain = document.getElementById('main-console');
-                        if (!consoleMain) break;
+                        if (!document.getElementById('main-console')) break;
                         let text = '';
                         if (typeof data.line64 === 'string') {
                             const bin = atob(data.line64);
@@ -76,11 +89,10 @@ function handleWebSocketMessage(message) {
                         } else if (typeof data.line === 'string') {
                             text = data.line;
                         }
-                        if (text && typeof appendLogLine === 'function') {
-                            if (data.nodeId) {
-                                const nodeKey = data.modelId ? '[' + data.nodeId + '/' + data.modelId + ']' : '[' + data.nodeId + ']';
-                                text = nodeKey + ' ' + text;
-                            }
+                        if (!text) break;
+                        if (data.nodeId && typeof appendRemoteLogLine === 'function') {
+                            appendRemoteLogLine(data.nodeId, text);
+                        } else if (typeof appendLogLine === 'function') {
                             appendLogLine(text, data.timestamp);
                         }
                     }

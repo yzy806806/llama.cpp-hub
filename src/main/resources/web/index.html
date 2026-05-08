@@ -18,6 +18,14 @@
         .sidebar-quick-link-domain { font-size: 0.8rem; font-weight: 700; line-height: 1.1; word-break: break-all; }
         .sidebar-quick-link-desc { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.2; }
         .sidebar-quick-link-ext { color: var(--text-secondary); opacity: 0.8; margin-top: 0.15rem; flex: 0 0 auto; }
+        /* === Console Tab Bar === */
+        .console-tab-bar { display:flex; gap:4px; margin:0 18px; background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:10px; padding:3px; flex-shrink:0; }
+        .console-tab-btn { flex:1; padding:7px 12px; border:none; border-radius:7px; background:transparent; color:#6b7280; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.15s; font-family:inherit; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .console-tab-btn:hover { color:#4f46e5; background:rgba(99,102,241,0.06); }
+        .console-tab-btn.active { background:rgba(99,102,241,0.12); color:#4f46e5; font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.12); }
+        .console-tab-container { flex:1 1 0; min-height:0; position:relative; margin:0 18px; }
+        .console-tab-panel { position:absolute; inset:0; overflow:hidden; display:none; }
+        .console-tab-panel.active { display:block; }
         /* === Benchmark V3 Panel === */
         #main-benchmark-v3 { display:flex; flex-direction:column; overflow:hidden; }
         #main-benchmark-v3 .tab-bar { margin:0 18px; display:flex; gap:4px; background:var(--sidebar-bg); border:1px solid var(--border-color); border-radius:10px; padding:3px; flex-shrink:0; }
@@ -911,20 +919,18 @@
                 <button class="btn btn-secondary" id="refreshConsoleBtn" title="common.refresh" data-i18n="common.refresh" data-i18n-attr="title">
                     <i class="fas fa-sync-alt"></i>
                 </button>
-                <label style="display:inline-flex; align-items:center; gap:6px; font-size: 14px; color: var(--text-secondary);">
-                    <input type="checkbox" id="autoRefreshConsole"> <span data-i18n="modal.console.auto_refresh">modal.console.auto_refresh</span>
-                </label>
-                <label style="display:inline-flex; align-items:center; gap:6px; font-size: 14px; color: var(--text-secondary);">
-                    <span data-i18n="modal.console.interval_ms">modal.console.interval_ms</span>
-                    <input class="form-control" type="number" id="intervalConsoleInput" value="2000" min="500" style="width: 92px; padding: 4px 8px;">
-                </label>
                 <div id="consoleStatusText" style="font-size:12px; color:var(--text-secondary); margin-left:auto;"></div>
             </div>
         </div>
 
-        <div class="content-scrollable" style="padding: 0;">
-            <div id="logContainer" style="height: 100%; overflow:auto; padding:16px; font-family:'Menlo', 'Monaco', 'Courier New', monospace; background:#0f172a; color:#e5e7eb; font-size: 0.875rem;">
-                <pre id="consoleContent" style="margin:0; white-space:pre; word-break:normal; overflow-wrap:normal;"></pre>
+        <div class="console-tab-bar" id="consoleTabs">
+            <button class="console-tab-btn active" data-tab="local">本地</button>
+        </div>
+        <div class="console-tab-container" id="consoleTabContainer">
+            <div class="console-tab-panel active" data-panel="local">
+                <div id="logContainer" style="height: 100%; overflow:auto; padding:16px; font-family:'Menlo', 'Monaco', 'Courier New', monospace; background:#0f172a; color:#e5e7eb; font-size: 0.875rem;">
+                    <pre id="consoleContent" style="margin:0; white-space:pre-wrap; word-break:break-word; overflow-wrap:break-word;"></pre>
+                </div>
             </div>
         </div>
     </main>
@@ -1404,6 +1410,7 @@
         // --- Initialization ---
         document.addEventListener('DOMContentLoaded', function() {
             initWebSocket();
+            fetchRemoteNodes();
             initModelSearch();
             loadParamConfig();
             loadBuildInfo();
@@ -2176,7 +2183,7 @@
         function closeModal(id) {
             const el = document.getElementById(id);
             if (el) el.classList.remove('show');
-            if (id === 'consoleModal') stopConsoleAuto();
+            //stopConsoleAuto();
             if (id === 'loadModelModal') {
                 document.getElementById('loadModelForm').reset();
                 const btn = document.getElementById('modelActionSubmitBtn');
@@ -2629,7 +2636,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             //refreshModels();
             // 更新导航项高亮
@@ -2651,7 +2658,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             loadLlamaCppList();
             // 更新导航项高亮
@@ -2673,7 +2680,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             loadModelPathList();
             // 更新导航项高亮
@@ -2714,7 +2721,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));
@@ -2733,7 +2740,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             const main = document.getElementById('main-download');
             const hasEntered = main && main.dataset && main.dataset.entered === '1';
@@ -2757,7 +2764,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             const main = document.getElementById('main-settings');
             if (main) main.style.display = '';
@@ -2826,7 +2833,7 @@
             document.getElementById('main-device-status').style.display = '';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             const contentEl = document.getElementById('deviceStatusContent');
             if (contentEl) contentEl.textContent = '';
             fetchDeviceStatus();
@@ -2938,7 +2945,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-usage-report').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = '';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));
@@ -2958,7 +2965,7 @@
             document.getElementById('main-device-status').style.display = 'none';
             document.getElementById('main-benchmark-v3').style.display = 'none';
             document.getElementById('main-usage-report').style.display = '';
-            stopConsoleAuto();
+            //stopConsoleAuto();
             stopDeviceStatusAuto();
             const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
             navItems.forEach(item => item.classList.remove('active'));

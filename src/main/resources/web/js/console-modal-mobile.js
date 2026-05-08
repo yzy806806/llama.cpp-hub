@@ -1,7 +1,6 @@
 (function () {
     const byId = (id) => document.getElementById(id);
 
-    let timer = null;
     let pending = [];
     let scheduled = false;
     let snapshotInFlight = false;
@@ -12,9 +11,7 @@
             content: byId('consoleContent'),
             container: byId('logContainer'),
             status: byId('consoleStatusText'),
-            refreshBtn: byId('refreshConsoleBtn'),
-            autoBox: byId('autoRefreshConsole'),
-            intervalInput: byId('intervalConsoleInput')
+            refreshBtn: byId('refreshConsoleBtn')
         };
     }
 
@@ -49,20 +46,6 @@
         }
     }
 
-    function stopConsoleAuto() {
-        if (timer) {
-            clearInterval(timer);
-            timer = null;
-        }
-    }
-
-    function startConsoleAuto() {
-        stopConsoleAuto();
-        const els = getEls();
-        const ms = Math.max(500, parseInt((els.intervalInput && els.intervalInput.value) || '2000', 10) || 2000);
-        timer = setInterval(fetchConsole, ms);
-    }
-
     function openConsoleModal() {
         const els = getEls();
         if (!els.modal) return;
@@ -74,9 +57,7 @@
 
     function flushAppend() {
         scheduled = false;
-        if (snapshotInFlight) {
-            return;
-        }
+        if (snapshotInFlight) return;
         const els = getEls();
         if (!els.content) {
             pending = [];
@@ -102,20 +83,11 @@
         }
     }
 
+    function stopConsoleAuto() {}
+
     function bind() {
         const els = getEls();
         if (els.refreshBtn) els.refreshBtn.addEventListener('click', fetchConsole);
-        if (els.autoBox) {
-            els.autoBox.addEventListener('change', function () {
-                if (els.autoBox.checked) startConsoleAuto();
-                else stopConsoleAuto();
-            });
-        }
-        if (els.intervalInput) {
-            els.intervalInput.addEventListener('change', function () {
-                if (els.autoBox && els.autoBox.checked) startConsoleAuto();
-            });
-        }
     }
 
     document.addEventListener('DOMContentLoaded', function () {
