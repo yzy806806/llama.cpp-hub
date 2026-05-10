@@ -8,6 +8,8 @@
     let pendingLogsWithTs = [];
     let flushScheduled = false;
     let snapshotInFlight = false;
+    let remotePending = {};
+    let remoteSnapshotInFlight = {};
 
     function nearBottom() {
         if (!logContainer) return true;
@@ -74,17 +76,32 @@
 
     function flushPendingLogs() {
         flushScheduled = false;
-        if (snapshotInFlight || !pendingLogs.length || !logEl) return;
-        const atBottom = nearBottom();
-        pendingLogsWithTs.sort(function (a, b) { return a.ts - b.ts; });
-        var chunk = '';
-        for (var i = 0; i < pendingLogsWithTs.length; i++) {
-            chunk += pendingLogsWithTs[i].text;
+        if (!snapshotInFlight && pendingLogs.length && logEl) {
+            const atBottom = nearBottom();
+            pendingLogsWithTs.sort(function (a, b) { return a.ts - b.ts; });
+            var chunk = '';
+            for (var i = 0; i < pendingLogsWithTs.length; i++) {
+                chunk += pendingLogsWithTs[i].text;
+            }
+            pendingLogs = [];
+            pendingLogsWithTs = [];
+            logEl.textContent += chunk;
+            if (atBottom) scrollBottom();
         }
-        pendingLogs = [];
-        pendingLogsWithTs = [];
-        logEl.textContent += chunk;
-        if (atBottom) scrollBottom();
+        for (var nid in remotePending) {
+            if (remoteSnapshotInFlight[nid]) continue;
+            var lines = remotePending[nid];
+            if (!lines || !lines.length) continue;
+            remotePending[nid] = [];
+            var pre = document.getElementById('remoteConsoleContent-' + nid);
+            if (!pre) continue;
+            var rChunk = lines.join('');
+            pre.textContent += rChunk;
+            var container = document.getElementById('remoteLogContainer-' + nid);
+            if (container && Math.abs(container.scrollHeight - container.scrollTop - container.clientHeight) < 50) {
+                container.scrollTop = container.scrollHeight;
+            }
+        }
     }
 
     function startConsoleAuto() {
@@ -132,12 +149,17 @@
     }
 
     async function fetchRemoteConsole(nodeId, baseUrl) {
+        remoteSnapshotInFlight[nodeId] = true;
         try {
             var resp = await fetch('/api/sys/console?nodeId=' + encodeURIComponent(nodeId));
             var text = await resp.text();
             var pre = document.getElementById('remoteConsoleContent-' + nodeId);
-            if (pre && text) pre.textContent = text;
+            if (pre) pre.textContent = text || '';
+            var container = document.getElementById('remoteLogContainer-' + nodeId);
+            if (container) container.scrollTop = container.scrollHeight;
         } catch (e) {}
+        delete remoteSnapshotInFlight[nodeId];
+        scheduleFlush();
     }
 
     function appendRemoteLogLine(nodeId, text) {
@@ -145,9 +167,10 @@
         if (!pre) return;
         var clean = (text || '').replace(/\r/g, '');
         var withNl = clean.endsWith('\n') ? clean : clean + '\n';
-        pre.textContent += withNl;
-        var container = document.getElementById('remoteLogContainer-' + nodeId);
-        if (container) container.scrollTop = container.scrollHeight;
+        if (!remotePending[nodeId]) remotePending[nodeId] = [];
+        remotePending[nodeId].push(withNl);
+        if (remoteSnapshotInFlight[nodeId]) return;
+        scheduleFlush();
     }
 
     if (refreshConsoleBtn) refreshConsoleBtn.addEventListener('click', fetchConsole);
