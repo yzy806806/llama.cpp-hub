@@ -997,6 +997,35 @@
       }
     }
 
+    // ── Streaming Text Render（增量追加 TextNode，避免每 token innerHTML 全量替换）──
+    const streamingTextCache = new WeakMap();
+
+    function appendStreamingText(target, fullText) {
+      if (!target) return;
+      const existingTextNode = streamingTextCache.get(target);
+      if (!existingTextNode) {
+        target.innerHTML = '';
+        target.style.whiteSpace = 'pre-wrap';
+        target.style.wordBreak = 'break-word';
+        const textNode = document.createTextNode(fullText);
+        target.appendChild(textNode);
+        streamingTextCache.set(target, textNode);
+        return;
+      }
+      const currentLen = existingTextNode.textContent.length;
+      if (fullText.length > currentLen) {
+        existingTextNode.appendData(fullText.slice(currentLen));
+      }
+    }
+
+    function clearStreamingCache(target) {
+      if (target) {
+        streamingTextCache.delete(target);
+        target.style.whiteSpace = '';
+        target.style.wordBreak = '';
+      }
+    }
+
     function nowTime() {
       return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     }
@@ -3036,7 +3065,11 @@
 
         const reasoningBody = document.createElement('div');
         reasoningBody.className = 'reasoning-body' + (message.reasoningCollapsed ? ' hidden' : '');
-        renderRichText(reasoningBody, message.reasoning, { isStreaming: !!message.isStreaming });
+        if (message.isStreaming) {
+          appendStreamingText(reasoningBody, message.reasoning || '');
+        } else {
+          renderRichText(reasoningBody, message.reasoning, { isStreaming: false });
+        }
 
         reasoningHead.appendChild(reasoningMeta);
         reasoningHead.appendChild(reasoningCaret);
@@ -3197,7 +3230,11 @@
         if (String(message.content || '').trim() && message.role !== 'tool') {
           const content = document.createElement('div');
           content.className = 'message-content';
-          renderRichText(content, message.content || '', { isStreaming: !!message.isStreaming });
+          if (message.isStreaming) {
+            appendStreamingText(content, message.content || '');
+          } else {
+            renderRichText(content, message.content || '', { isStreaming: false });
+          }
           bubble.appendChild(content);
         }
 
@@ -3421,7 +3458,12 @@
         reasoningState.textContent = message.reasoningCollapsed ? '点击展开' : '点击收起';
         reasoningBody.classList.toggle('hidden', !!message.reasoningCollapsed);
         if (!message.reasoningCollapsed) {
-          renderRichText(reasoningBody, message.reasoning, { isStreaming: !!message.isStreaming });
+          if (message.isStreaming) {
+            appendStreamingText(reasoningBody, message.reasoning || '');
+          } else {
+            clearStreamingCache(reasoningBody);
+            renderRichText(reasoningBody, message.reasoning, { isStreaming: false });
+          }
         }
       } else if (reasoningBox) {
         reasoningBox.remove();
@@ -3434,7 +3476,12 @@
           contentDiv.className = 'message-content';
           bubble.appendChild(contentDiv);
         }
-        renderRichText(contentDiv, message.content || '', { isStreaming: !!message.isStreaming });
+        if (message.isStreaming) {
+          appendStreamingText(contentDiv, message.content || '');
+        } else {
+          clearStreamingCache(contentDiv);
+          renderRichText(contentDiv, message.content || '', { isStreaming: false });
+        }
       } else if (contentDiv) {
         contentDiv.remove();
       }
@@ -3577,7 +3624,9 @@
         if (!updated) {
           renderMessages();
         } else {
-          updateMessageActionStates();
+          if (!message.isStreaming) {
+            updateMessageActionStates();
+          }
           scrollChatToBottom();
         }
       } else {
