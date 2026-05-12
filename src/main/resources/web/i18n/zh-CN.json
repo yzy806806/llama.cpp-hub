@@ -929,7 +929,7 @@
   "report.total_cache": "总缓存命中 Token",
   "report.cache_tokens": "缓存 Token",
 
-  "page.settings.tab.update": "检查更新",
+  "page.settings.tab.update": "版本更新",
   "page.settings.update.current_version": "当前版本",
   "page.settings.update.check_btn": "检查更新",
   "page.settings.update.latest_version": "最新版本",

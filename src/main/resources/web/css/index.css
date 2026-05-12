@@ -1169,7 +1169,7 @@
         #main-settings .content-scrollable { padding: 0; background: transparent; }
 
         .settings-layout {
-            min-height: 100%;
+            height: 100%;
             padding: 1.25rem 1.25rem 1.5rem;
             display: flex;
             flex-direction: column;
@@ -2197,8 +2197,47 @@
         .settings-tab-panel.active {
             display: block;
         }
+
+        /* Update tab — stretch to fill viewport */
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active > .settings-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active > .settings-panel > .settings-panel-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active #updateResultArea {
+            flex: 1;
+            min-height: 0;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active .update-result-card {
+            display: flex;
+            flex-direction: column;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active .update-result-actions {
+            margin-top: auto;
+        }
+        #main-settings .settings-tab-panel[data-tab-panel="update"].active .update-release-body {
+            flex: 1;
+            min-height: 0;
+        }
         .settings-content {
+            flex: 1;
             min-width: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
 
         .settings-field-row {

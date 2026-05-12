@@ -929,7 +929,7 @@
   "report.total_cache": "Total Cache Hit Tokens",
   "report.cache_tokens": "Cache",
 
-  "page.settings.tab.update": "Updates",
+  "page.settings.tab.update": "Version Update",
   "page.settings.update.current_version": "Current Version",
   "page.settings.update.check_btn": "Check for Updates",
   "page.settings.update.latest_version": "Latest Version",
