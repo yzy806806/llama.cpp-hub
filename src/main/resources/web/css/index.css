@@ -1559,7 +1559,45 @@
         }
 
         .update-result-actions .btn {
-            align-self: flex-start;
+            width: 100%;
+        }
+
+        .update-proxy-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+        }
+
+        .update-proxy-label {
+            font-size: 0.82rem;
+            color: #6b7280;
+            white-space: nowrap;
+        }
+
+        .update-proxy-label i {
+            color: #f59e0b;
+        }
+
+        .update-proxy-select {
+            flex: 1;
+            padding: 0.4rem 0.6rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.45rem;
+            font-size: 0.82rem;
+            background: #fff;
+            color: #374151;
+            cursor: pointer;
+        }
+
+        .update-proxy-select:hover {
+            border-color: #9ca3af;
+        }
+
+        .update-proxy-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
         }
 
         .update-progress-card {

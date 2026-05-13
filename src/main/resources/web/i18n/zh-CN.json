@@ -1053,5 +1053,16 @@
   "modal.node.form.url": "URL",
   "modal.node.form.url_placeholder": "http://192.168.1.100:8080",
   "modal.node.form.api_key_optional": "API Key（可选）",
-  "modal.node.form.tags_placeholder": "A100, production"
+  "modal.node.form.tags_placeholder": "A100, production",
+
+  "page.settings.update.proxy.label": "加速地址",
+  "page.settings.update.proxy.off": "关闭",
+  "page.settings.update.action.download": "下载安装包",
+  "page.settings.update.action.download_version": "下载 {version}",
+  "page.settings.update.action.apply": "应用更新",
+  "page.settings.update.action.apply_version": "应用 {version}",
+  "page.settings.update.progress.preparing": "准备下载...",
+  "page.settings.update.progress.downloading": "下载更新包...",
+  "page.settings.update.error.download_failed": "下载失败",
+  "page.settings.update.error.self_compiled": "当前版本不支持自动更新"
 }

@@ -77,6 +77,11 @@ function handleWebSocketMessage(message) {
                 case 'model_status': handleModelStatusUpdate(data); break;
                 case 'model_slots': handleModelSlotsUpdate(data); break;
                 case 'model_busy': handleModelBusyEvent(data); break;
+                case 'app_update':
+                    if (typeof window.onAppUpdateEvent === 'function') {
+                        window.onAppUpdateEvent(data);
+                    }
+                    break;
                 case 'console':
                     {
                         if (!document.getElementById('main-console')) break;

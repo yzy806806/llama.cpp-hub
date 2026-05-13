@@ -282,6 +282,24 @@ public class WebSocketManager {
     }
     
     /**
+     * 发送应用更新进度事件
+     */
+    public void sendAppUpdateEvent(String status, long downloadedBytes,
+            long totalBytes, double progressRatio, String version, String errorMessage) {
+        String eventMessage = String.format(
+            "{\"type\":\"app_update\",\"status\":\"%s\",\"downloadedBytes\":%d,\"totalBytes\":%d,\"progressRatio\":%s,\"version\":\"%s\",\"errorMessage\":\"%s\",\"timestamp\":%d}",
+            status != null ? status.replace("\"", "\\\"") : "",
+            downloadedBytes,
+            totalBytes,
+            progressRatio < 0 ? "-1" : String.format("%.4f", progressRatio),
+            version != null ? version.replace("\"", "\\\"") : "",
+            errorMessage != null ? errorMessage.replace("\"", "\\\"") : "",
+            System.currentTimeMillis()
+        );
+        broadcast(eventMessage);
+    }
+
+    /**
      * 关闭管理器，释放资源
      */
     public void shutdown() {

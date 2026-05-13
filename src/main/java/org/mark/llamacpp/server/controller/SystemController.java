@@ -1181,7 +1181,7 @@ public class SystemController implements BaseController {
 	/**
 	 * 更新状态查询
 	 */
-	private void handleUpdateStatusRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		private void handleUpdateStatusRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		if (request.method() == HttpMethod.OPTIONS) {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
@@ -1201,6 +1201,9 @@ public class SystemController implements BaseController {
 			data.put("zipDownloaded", zipExists);
 			data.put("zipSize", zipSize);
 			data.put("pendingVersion", updater.getPendingVersion());
+			data.put("downloadedBytes", updater.getDownloadedBytes());
+			data.put("totalBytes", updater.getTotalBytes());
+			data.put("progressRatio", updater.getProgressRatio());
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("查询更新状态时发生错误", e);

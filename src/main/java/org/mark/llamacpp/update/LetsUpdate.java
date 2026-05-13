@@ -1,15 +1,9 @@
 package org.mark.llamacpp.update;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -58,11 +52,11 @@ public class LetsUpdate {
 	}
 
 	/**
-	 * 从指定 URL 下载更新包。
-	 * 状态转换：IDLE → DOWNLOADING → READY
+	 * 异步下载更新包。
+	 * 状态转换：IDLE → DOWNLOADING（异步）→ READY
 	 * @param url 更新包下载链接
-	 * @param version 版本号（如 v0.8.0），下载成功后持久化到磁盘
-	 * @return 结果 Map：success, zipPath, size, error, status, version
+	 * @param version 版本号（如 v0.8.0）
+	 * @return 结果 Map：success, status, error
 	 */
 	public Map<String, Object> download(String url, String version) {
 		Map<String, Object> result = new ConcurrentHashMap<>();
@@ -86,62 +80,30 @@ public class LetsUpdate {
 			Path userDir = Paths.get(System.getProperty("user.dir"));
 			Path oldZip = userDir.resolve(UPDATE_ZIP).normalize();
 			deleteQuietly(oldZip);
-			Path oldVersionFile = userDir.resolve(UPDATE_PENDING_VERSION).normalize();
-			deleteQuietly(oldVersionFile);
 		} else {
 			result.put("success", false);
 			result.put("error", getCurrentStatusError(current));
 			result.put("status", current.getLabel());
 			return result;
 		}
-		try {
-			if (url == null || url.trim().isEmpty()) {
-				status.set(UpdateStatus.IDLE);
-				result.put("success", false);
-				result.put("error", "缺少下载链接");
-				return result;
-			}
-			Path zipPath = downloadZip(url.trim(), UPDATE_ZIP);
-			if (zipPath == null) {
-				status.set(UpdateStatus.IDLE);
-				result.put("success", false);
-				result.put("error", "下载更新包失败");
-				return result;
-			}
-			Path userDir = Paths.get(System.getProperty("user.dir"));
-			savePendingVersion(userDir, version);
-			status.set(UpdateStatus.READY);
-			result.put("success", true);
-			result.put("zipPath", UPDATE_ZIP);
-			result.put("size", Files.size(zipPath));
-			result.put("version", version);
-			result.put("status", UpdateStatus.READY.getLabel());
-			return result;
-		} catch (Exception e) {
-			logger.error("下载更新包时发生错误", e);
+		if (url == null || url.trim().isEmpty()) {
 			status.set(UpdateStatus.IDLE);
 			result.put("success", false);
-			result.put("error", "下载更新失败: " + e.getMessage());
+			result.put("error", "缺少下载链接");
 			return result;
 		}
-	}
-
-	/**
-	 * 将版本号写入磁盘，供跨请求恢复状态使用。
-	 */
-	private void savePendingVersion(Path userDir, String version) {
-		try {
-			Path versionFile = userDir.resolve(UPDATE_PENDING_VERSION).normalize();
-			Path parent = versionFile.getParent();
-			if (parent != null && !Files.exists(parent)) {
-				Files.createDirectories(parent);
-			}
-			try (BufferedWriter writer = Files.newBufferedWriter(versionFile)) {
-				writer.write(version != null ? version : "");
-			}
-		} catch (IOException e) {
-			logger.warn("保存待更新版本号失败: {}", e.getMessage());
+		boolean ok = UpdateDownloader.getInstance().downloadAsync(url.trim(), version);
+		if (!ok) {
+			status.set(UpdateStatus.IDLE);
+			result.put("success", false);
+			result.put("error", "无法启动下载任务");
+			result.put("status", UpdateStatus.IDLE.getLabel());
+			return result;
 		}
+		result.put("success", true);
+		result.put("status", UpdateStatus.DOWNLOADING.getLabel());
+		result.put("version", version);
+		return result;
 	}
 
 	/**
@@ -244,15 +206,55 @@ public class LetsUpdate {
 	}
 
 	/**
-	 * 获取当前更新状态。
+	 * 获取当前更新状态（合并 UpdateDownloader 状态）。
 	 */
 	public UpdateStatus getStatus() {
-		return status.get();
+		UpdateStatus self = status.get();
+		if (self == UpdateStatus.APPLYING || self == UpdateStatus.ROLLBACK) {
+			return self;
+		}
+		if (self == UpdateStatus.READY) {
+			return self;
+		}
+		if (self == UpdateStatus.DOWNLOADING) {
+			UpdateDownloadStatus dl = UpdateDownloader.getInstance().getStatus();
+			if (dl == UpdateDownloadStatus.READY) {
+				status.set(UpdateStatus.READY);
+				return UpdateStatus.READY;
+			}
+			if (dl == UpdateDownloadStatus.FAILED) {
+				status.set(UpdateStatus.IDLE);
+				return UpdateStatus.IDLE;
+			}
+			return UpdateStatus.DOWNLOADING;
+		}
+		return UpdateStatus.IDLE;
 	}
 
 	/**
-	 * 取消待应用的更新包，回到空闲状态。
-	 * 状态转换：READY → IDLE
+	 * 获取已下载字节数（委托给 UpdateDownloader）。
+	 */
+	public long getDownloadedBytes() {
+		return UpdateDownloader.getInstance().getDownloadedBytes();
+	}
+
+	/**
+	 * 获取总字节数（委托给 UpdateDownloader）。
+	 */
+	public long getTotalBytes() {
+		return UpdateDownloader.getInstance().getTotalBytes();
+	}
+
+	/**
+	 * 获取进度比（委托给 UpdateDownloader）。
+	 */
+	public double getProgressRatio() {
+		return UpdateDownloader.getInstance().getProgressRatio();
+	}
+
+	/**
+	 * 取消下载或待应用的更新包，回到空闲状态。
+	 * 状态转换：READY → IDLE 或 DOWNLOADING → IDLE
 	 * @return 结果 Map：success, error
 	 */
 	public Map<String, Object> cancelDownload() {
@@ -274,44 +276,23 @@ public class LetsUpdate {
 			result.put("success", true);
 			result.put("status", UpdateStatus.IDLE.getLabel());
 			return result;
+		} else if (current == UpdateStatus.DOWNLOADING) {
+			UpdateDownloader.getInstance().cancel();
+			status.set(UpdateStatus.IDLE);
+			Path userDir = Paths.get(System.getProperty("user.dir"));
+			Path zipToDelete = userDir.resolve(UPDATE_ZIP).normalize();
+			deleteQuietly(zipToDelete);
+			Path versionFile = userDir.resolve(UPDATE_PENDING_VERSION).normalize();
+			deleteQuietly(versionFile);
+			result.put("success", true);
+			result.put("status", UpdateStatus.IDLE.getLabel());
+			return result;
 		} else {
 			result.put("success", false);
 			result.put("error", getCurrentStatusError(current));
 			result.put("status", current.getLabel());
 			return result;
 		}
-	}
-
-	/**
-	 * 通过 HttpURLConnection 下载文件。
-	 */
-	private Path downloadZip(String downloadUrl, String targetPath) throws IOException {
-		Path target = Paths.get(targetPath);
-		Path parent = target.getParent();
-		if (parent != null && !Files.exists(parent)) {
-			Files.createDirectories(parent);
-		}
-		URL url = URI.create(downloadUrl).toURL();
-		HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-		conn.setRequestProperty("User-Agent", "llama.cpp-hub-updater");
-		conn.setRequestProperty("Accept", "*/*");
-		conn.setConnectTimeout(30_000);
-		conn.setReadTimeout(120_000);
-		int respCode = conn.getResponseCode();
-		if (respCode != HttpURLConnection.HTTP_OK) {
-			conn.disconnect();
-			throw new IOException("下载失败: HTTP " + respCode);
-		}
-		try (InputStream in = conn.getInputStream(); OutputStream out = new FileOutputStream(target.toFile())) {
-			byte[] buf = new byte[8192];
-			int len;
-			while ((len = in.read(buf)) != -1) {
-				out.write(buf, 0, len);
-			}
-			out.flush();
-		}
-		conn.disconnect();
-		return target;
 	}
 
 	/**

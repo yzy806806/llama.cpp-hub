@@ -1053,5 +1053,16 @@
   "modal.node.form.url": "URL",
   "modal.node.form.url_placeholder": "http://192.168.1.100:8080",
   "modal.node.form.api_key_optional": "API Key (Optional)",
-  "modal.node.form.tags_placeholder": "A100, production"
+  "modal.node.form.tags_placeholder": "A100, production",
+
+  "page.settings.update.proxy.label": "Proxy",
+  "page.settings.update.proxy.off": "Off",
+  "page.settings.update.action.download": "Download",
+  "page.settings.update.action.download_version": "Download {version}",
+  "page.settings.update.action.apply": "Apply Update",
+  "page.settings.update.action.apply_version": "Apply {version}",
+  "page.settings.update.progress.preparing": "Preparing download...",
+  "page.settings.update.progress.downloading": "Downloading update...",
+  "page.settings.update.error.download_failed": "Download failed",
+  "page.settings.update.error.self_compiled": "Auto-update not supported for this version"
 }

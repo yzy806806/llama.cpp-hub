@@ -19,6 +19,18 @@
         });
     }
 
+    function formatBytes(bytes) {
+        if (bytes <= 0) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB'];
+        var i = 0;
+        var val = bytes;
+        while (val >= 1024 && i < units.length - 1) {
+            val /= 1024;
+            i++;
+        }
+        return val.toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+    }
+
     async function loadSettings() {
         try {
             const resp = await fetch('/api/sys/setting', { method: 'GET' });
@@ -652,8 +664,10 @@
 
             var downloadBtn = byId('updateDownloadBtn');
             var applyBtn = byId('updateApplyBtn');
+            var proxyRow = byId('updateProxyRow');
             if (downloadBtn) downloadBtn.style.display = 'none';
             if (applyBtn) applyBtn.style.display = 'none';
+            if (proxyRow) proxyRow.style.display = 'none';
 
             var statusResp = await fetch('/api/sys/update/status', { method: 'GET' });
             var statusResult = await statusResp.json();
@@ -662,19 +676,42 @@
             if (sd.status === 'ready' && applyBtn) {
                 applyBtn.style.display = 'inline-flex';
                 if (sd.pendingVersion) {
-                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + sd.pendingVersion;
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> ' + t('page.settings.update.action.apply_version', '应用 {version}').replace('{version}', sd.pendingVersion);
                 } else {
-                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用更新';
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> ' + t('page.settings.update.action.apply', '应用更新');
                 }
             }
 
-            if (!isPlaceholder && data.hasUpdate && release && sd.status !== 'downloading' && sd.status !== 'applying') {
+            if (sd.status === 'downloading') {
+                if (downloadBtn) downloadBtn.style.display = 'none';
+                if (applyBtn) applyBtn.style.display = 'none';
+                if (errorEl) errorEl.style.display = 'none';
+                var progressEl2 = byId('updateProgressArea');
+                var progressBar2 = byId('updateProgressBar');
+                var progressText2 = byId('updateProgressText');
+                var progressPercent2 = byId('updateProgressPercent');
+                var progressSize2 = byId('updateProgressSize');
+                if (progressEl2) progressEl2.style.display = '';
+                if (progressBar2 && sd.progressRatio >= 0) {
+                    progressBar2.style.width = (sd.progressRatio * 100) + '%';
+                }
+                if (progressPercent2 && sd.progressRatio >= 0) {
+                    progressPercent2.textContent = Math.round(sd.progressRatio * 100) + '%';
+                }
+                if (progressText2) progressText2.textContent = t('page.settings.update.progress.downloading', '下载更新包...');
+                if (progressSize2) {
+                    var dl = formatBytes(sd.downloadedBytes || 0);
+                    var total = sd.totalBytes > 0 ? formatBytes(sd.totalBytes) : '?';
+                    progressSize2.textContent = dl + ' / ' + total;
+                }
+            } else if (!isPlaceholder && data.hasUpdate && release && sd.status !== 'applying') {
                 if (downloadBtn) {
                     downloadBtn.style.display = 'inline-flex';
                     downloadBtn.dataset.tagName = release.tag_name;
                     downloadBtn.disabled = false;
-                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> 下载 ' + release.tag_name;
+                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> ' + t('page.settings.update.action.download_version', '下载 {version}').replace('{version}', release.tag_name);
                 }
+                if (proxyRow) proxyRow.style.display = '';
             }
 
         } catch (e) {
@@ -693,21 +730,36 @@
         var applyBtn = byId('updateApplyBtn');
         var errorEl = byId('updateErrorArea');
         var progressEl = byId('updateProgressArea');
+        var progressBar = byId('updateProgressBar');
+        var progressText = byId('updateProgressText');
+        var progressPercent = byId('updateProgressPercent');
+        var progressSize = byId('updateProgressSize');
         var resultEl = byId('updateResultArea');
+
         var tagName = downloadBtn ? (downloadBtn.dataset.tagName || '') : '';
         if (!tagName || tagName === '{tag}') {
             if (errorEl) {
                 errorEl.style.display = '';
-                errorEl.textContent = '当前版本不支持自动更新';
+                errorEl.textContent = t('page.settings.update.error.self_compiled', '当前版本不支持自动更新');
             }
             return;
         }
         var zipFileName = 'llama.cpp-hub-' + tagName + '.zip';
         var downloadUrl = 'https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases/download/' + tagName + '/' + zipFileName;
+        var proxySelect = byId('updateProxySelect');
+        if (proxySelect && proxySelect.value) {
+            downloadUrl = proxySelect.value + downloadUrl;
+        }
 
-        if (downloadBtn) downloadBtn.disabled = true;
+        if (downloadBtn) downloadBtn.style.display = 'none';
         if (applyBtn) applyBtn.style.display = 'none';
         if (errorEl) errorEl.style.display = 'none';
+        if (resultEl) resultEl.style.display = 'none';
+        if (progressEl) progressEl.style.display = '';
+        if (progressBar) progressBar.style.width = '0%';
+        if (progressPercent) progressPercent.textContent = '0%';
+        if (progressText) progressText.textContent = t('page.settings.update.progress.preparing', '准备下载...');
+        if (progressSize) progressSize.textContent = '';
 
         try {
             var resp = await fetch('/api/sys/update/download', {
@@ -717,25 +769,27 @@
             });
             var result = await resp.json();
             if (!result || !result.success) {
+                if (progressEl) progressEl.style.display = 'none';
                 if (errorEl) {
                     errorEl.style.display = '';
-                    errorEl.textContent = (result && result.error) ? result.error : '下载失败';
+                    errorEl.textContent = (result && result.error) ? result.error : t('page.settings.update.error.download_failed', '下载失败');
                 }
-                if (downloadBtn) downloadBtn.disabled = false;
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'inline-flex';
+                    downloadBtn.disabled = false;
+                }
                 return;
             }
-            if (downloadBtn) downloadBtn.style.display = 'none';
-            if (applyBtn) {
-                applyBtn.style.display = 'inline-flex';
-                applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + tagName;
-            }
-            if (resultEl) resultEl.style.display = '';
         } catch (e) {
+            if (progressEl) progressEl.style.display = 'none';
             if (errorEl) {
                 errorEl.style.display = '';
-                errorEl.textContent = '网络请求失败';
+                errorEl.textContent = t('common.network_request_failed', '网络请求失败');
             }
-            if (downloadBtn) downloadBtn.disabled = false;
+            if (downloadBtn) {
+                downloadBtn.style.display = 'inline-flex';
+                downloadBtn.disabled = false;
+            }
         }
     }
 
@@ -763,9 +817,68 @@
         } catch (e) {
             if (errorEl) {
                 errorEl.style.display = '';
-                errorEl.textContent = '网络请求失败';
+                errorEl.textContent = t('common.network_request_failed', '网络请求失败');
             }
             if (applyBtn) applyBtn.disabled = false;
+        }
+    }
+
+    function handleAppUpdateEvent(data) {
+        if (!data || !data.status) return;
+
+        var progressEl = byId('updateProgressArea');
+        var progressBar = byId('updateProgressBar');
+        var progressText = byId('updateProgressText');
+        var progressPercent = byId('updateProgressPercent');
+        var progressSize = byId('updateProgressSize');
+        var downloadBtn = byId('updateDownloadBtn');
+        var applyBtn = byId('updateApplyBtn');
+        var resultEl = byId('updateResultArea');
+        var errorEl = byId('updateErrorArea');
+        var proxyRow = byId('updateProxyRow');
+
+        if (data.status === 'downloading') {
+            if (progressEl) progressEl.style.display = '';
+            if (errorEl) errorEl.style.display = 'none';
+            if (proxyRow) proxyRow.style.display = 'none';
+
+            var ratio = data.progressRatio;
+            if (ratio >= 0 && progressBar) {
+                progressBar.style.width = (ratio * 100) + '%';
+            }
+            if (progressPercent) {
+                progressPercent.textContent = (ratio >= 0 ? Math.round(ratio * 100) : 0) + '%';
+            }
+            if (progressText) {
+                progressText.textContent = t('page.settings.update.progress.downloading', '下载更新包...');
+            }
+            if (progressSize) {
+                var dl = formatBytes(data.downloadedBytes || 0);
+                var total = data.totalBytes > 0 ? formatBytes(data.totalBytes) : '?';
+                progressSize.textContent = dl + ' / ' + total;
+            }
+        } else if (data.status === 'completed') {
+            if (progressEl) progressEl.style.display = 'none';
+            if (downloadBtn) downloadBtn.style.display = 'none';
+            if (proxyRow) proxyRow.style.display = 'none';
+            if (resultEl) resultEl.style.display = '';
+            if (applyBtn) {
+                applyBtn.style.display = 'inline-flex';
+                var applyLabel = data.version ? t('page.settings.update.action.apply_version', '应用 {version}').replace('{version}', data.version) : t('page.settings.update.action.apply', '应用更新');
+                applyBtn.innerHTML = '<i class="fas fa-check"></i> ' + applyLabel;
+            }
+        } else if (data.status === 'failed') {
+            if (progressEl) progressEl.style.display = 'none';
+            if (applyBtn) applyBtn.style.display = 'none';
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = data.errorMessage || t('page.settings.update.error.download_failed', '下载失败');
+            }
+            if (downloadBtn) {
+                downloadBtn.style.display = 'inline-flex';
+                downloadBtn.disabled = false;
+            }
+            if (proxyRow) proxyRow.style.display = '';
         }
     }
 
@@ -791,30 +904,62 @@
             var downloadBtn = byId('updateDownloadBtn');
             var resultEl = byId('updateResultArea');
             var errorEl = byId('updateErrorArea');
+            var progressEl = byId('updateProgressArea');
+            var progressBar = byId('updateProgressBar');
+            var progressText = byId('updateProgressText');
+            var progressPercent = byId('updateProgressPercent');
+            var progressSize = byId('updateProgressSize');
+            var proxyRow = byId('updateProxyRow');
             var currentVerEl = byId('updateCurrentVersion');
             if (currentVerEl) currentVerEl.textContent = sd.currentVersion || '-';
+
             if (sd.status === 'ready' && applyBtn) {
                 if (resultEl) resultEl.style.display = '';
                 applyBtn.style.display = 'inline-flex';
                 if (sd.pendingVersion) {
-                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用 ' + sd.pendingVersion;
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> ' + t('page.settings.update.action.apply_version', '应用 {version}').replace('{version}', sd.pendingVersion);
                 } else {
-                    applyBtn.innerHTML = '<i class="fas fa-check"></i> 应用更新';
+                    applyBtn.innerHTML = '<i class="fas fa-check"></i> ' + t('page.settings.update.action.apply', '应用更新');
                 }
                 if (downloadBtn) downloadBtn.style.display = 'none';
+                if (proxyRow) proxyRow.style.display = 'none';
                 if (errorEl) errorEl.style.display = 'none';
-            } else if (sd.status === 'downloading' || sd.status === 'applying') {
+                if (progressEl) progressEl.style.display = 'none';
+            } else if (sd.status === 'downloading') {
+                if (downloadBtn) downloadBtn.style.display = 'none';
+                if (proxyRow) proxyRow.style.display = 'none';
+                if (applyBtn) applyBtn.style.display = 'none';
+                if (resultEl) resultEl.style.display = 'none';
+                if (errorEl) errorEl.style.display = 'none';
+                if (progressEl) progressEl.style.display = '';
+                if (progressBar && sd.progressRatio >= 0) {
+                    progressBar.style.width = (sd.progressRatio * 100) + '%';
+                }
+                if (progressPercent && sd.progressRatio >= 0) {
+                    progressPercent.textContent = Math.round(sd.progressRatio * 100) + '%';
+                }
+                if (progressText) progressText.textContent = t('page.settings.update.progress.downloading', '下载更新包...');
+                if (progressSize) {
+                    var dl = formatBytes(sd.downloadedBytes || 0);
+                    var total = sd.totalBytes > 0 ? formatBytes(sd.totalBytes) : '?';
+                    progressSize.textContent = dl + ' / ' + total;
+                }
+            } else if (sd.status === 'applying') {
                 if (downloadBtn) {
                     downloadBtn.style.display = 'inline-flex';
                     downloadBtn.disabled = true;
                 }
+                if (proxyRow) proxyRow.style.display = 'none';
                 if (applyBtn) applyBtn.style.display = 'none';
+                if (progressEl) progressEl.style.display = 'none';
             } else {
                 if (downloadBtn) {
                     downloadBtn.style.display = 'none';
                     downloadBtn.disabled = false;
                 }
+                if (proxyRow) proxyRow.style.display = 'none';
                 if (applyBtn) applyBtn.style.display = 'none';
+                if (progressEl) progressEl.style.display = 'none';
             }
         } catch (e) {}
     }
@@ -899,5 +1044,6 @@
     window.downloadUpdate = downloadUpdate;
     window.applyUpdate = applyUpdate;
     window.cancelUpdateDownload = cancelUpdateDownload;
+    window.onAppUpdateEvent = handleAppUpdateEvent;
     window.SettingsPage = { init, load, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode };
 })();
