@@ -47,6 +47,18 @@ import io.netty.util.CharsetUtil;
 public class SystemController implements BaseController {
 
 	private static final Logger logger = LoggerFactory.getLogger(SystemController.class);
+
+	// i18n keys — returned to frontend for translation
+	private static final String I18N_METHOD_GET_ONLY = "common.method.get.only";
+	private static final String I18N_METHOD_POST_ONLY = "common.method.post.only";
+	private static final String I18N_NOT_OFFICIAL_BUILD = "update.not.official.build";
+	private static final String I18N_URL_MISSING = "update.url.missing";
+	private static final String I18N_GITHUB_ONLY = "update.github.only";
+	private static final String I18N_DOWNLOAD_FAILED = "update.download.failed";
+	private static final String I18N_CHECK_FAILED = "update.check.failed";
+	private static final String I18N_APPLY_FAILED = "update.apply.failed";
+	private static final String I18N_STATUS_FAILED = "update.status.failed";
+	private static final String I18N_CANCEL_FAILED = "update.cancel.failed";
 	
 	/**
 	 * 	依旧请求入口。
@@ -1141,7 +1153,7 @@ public class SystemController implements BaseController {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
 		}
-		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		this.assertRequestMethod(request.method() != HttpMethod.GET, I18N_METHOD_GET_ONLY);
 		try {
 			GitHubTagFetcherNative fetcher = new GitHubTagFetcherNative();
 			GitHubTagFetcherNative.CheckResult result = fetcher.check();
@@ -1158,7 +1170,7 @@ public class SystemController implements BaseController {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("检查更新时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("检查更新失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHECK_FAILED));
 		}
 	}
 	
@@ -1170,10 +1182,10 @@ public class SystemController implements BaseController {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
 		}
-		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		this.assertRequestMethod(request.method() != HttpMethod.POST, I18N_METHOD_POST_ONLY);
 		try {
 			if (!isOfficialBuild()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("自编译版本不支持自动更新"));
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_NOT_OFFICIAL_BUILD));
 				return;
 			}
 			JsonObject obj = parseJsonBody(ctx, request);
@@ -1183,11 +1195,11 @@ public class SystemController implements BaseController {
 			String url = JsonUtil.getJsonString(obj, "url", null);
 			String version = JsonUtil.getJsonString(obj, "version", null);
 			if (url == null || url.trim().isEmpty()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少url参数"));
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_URL_MISSING));
 				return;
 			}
 			if (!isGitHubReleaseUrl(url.trim())) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("只允许下载 GitHub Release 资源"));
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_GITHUB_ONLY));
 				return;
 			}
 			Map<String, Object> data = LetsUpdate.getInstance().download(url.trim(), version);
@@ -1195,12 +1207,12 @@ public class SystemController implements BaseController {
 			if (success) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 			} else {
-				String error = (String) data.getOrDefault("error", "下载失败");
+				String error = (String) data.getOrDefault("error", I18N_DOWNLOAD_FAILED);
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
 			}
 		} catch (Exception e) {
 			logger.info("下载更新包时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("下载更新失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_DOWNLOAD_FAILED));
 		}
 	}
 
@@ -1220,28 +1232,28 @@ public class SystemController implements BaseController {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
 		}
-		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		this.assertRequestMethod(request.method() != HttpMethod.POST, I18N_METHOD_POST_ONLY);
 		try {
 			if (!isOfficialBuild()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("自编译版本不支持自动更新"));
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_NOT_OFFICIAL_BUILD));
 				return;
 			}
 			File zip = new File(System.getProperty("user.dir"), "cache" + File.separator + "update.zip");
 			Map<String, Object> data = LetsUpdate.getInstance().doUpdate(zip);
 			boolean success = (Boolean) data.getOrDefault("success", false);
 			if (success) {
-				String message = (String) data.getOrDefault("message", "更新已应用，请重启程序生效");
+				String message = (String) data.getOrDefault("message", LetsUpdate.I18N_APPLY_SUCCESS);
 				Map<String, Object> respData = new HashMap<>();
 				respData.put("success", true);
 				respData.put("message", message);
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(respData));
 			} else {
-				String error = (String) data.getOrDefault("error", "应用更新失败");
+				String error = (String) data.getOrDefault("error", I18N_APPLY_FAILED);
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
 			}
 		} catch (Exception e) {
 			logger.info("应用更新包时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("应用更新失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_APPLY_FAILED));
 		}
 	}
 
@@ -1253,7 +1265,7 @@ public class SystemController implements BaseController {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
 		}
-		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		this.assertRequestMethod(request.method() != HttpMethod.GET, I18N_METHOD_GET_ONLY);
 		try {
 			LetsUpdate updater = LetsUpdate.getInstance();
 			LetsUpdate.UpdateStatus status = updater.getStatus();
@@ -1274,7 +1286,7 @@ public class SystemController implements BaseController {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("查询更新状态时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("查询更新状态失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_STATUS_FAILED));
 		}
 	}
 
@@ -1294,19 +1306,19 @@ public class SystemController implements BaseController {
 			LlamaServer.sendCorsResponse(ctx);
 			return;
 		}
-		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
+		this.assertRequestMethod(request.method() != HttpMethod.POST, I18N_METHOD_POST_ONLY);
 		try {
 			Map<String, Object> data = LetsUpdate.getInstance().cancelDownload();
 			boolean success = (Boolean) data.getOrDefault("success", false);
 			if (success) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 			} else {
-				String error = (String) data.getOrDefault("error", "取消失败");
+				String error = (String) data.getOrDefault("error", I18N_CANCEL_FAILED);
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error(error));
 			}
 		} catch (Exception e) {
 			logger.info("取消更新下载时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("取消失败: " + e.getMessage()));
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CANCEL_FAILED));
 		}
 	}
 

@@ -44,6 +44,20 @@ public class LetsUpdate {
 
 	private static final String[] TARGET_DIRS = {"classes"};
 
+	// i18n keys — returned to frontend for translation
+	public static final String I18N_URL_MISSING = "update.url.missing";
+	public static final String I18N_DOWNLOAD_NOT_START = "update.download.not.start";
+	public static final String I18N_APPLY_FAILED_DOWNLOAD_NOT_READY = "update.apply.failed.download.not.ready";
+	public static final String I18N_APPLY_FILE_NOT_FOUND = "update.apply.file.not.found";
+	public static final String I18N_APPLY_SUCCESS = "update.apply.success";
+	public static final String I18N_APPLY_FAILED = "update.apply.failed";
+
+	static final String I18N_DOWNLOAD_IN_PROGRESS = "update.download.in.progress";
+	static final String I18N_DOWNLOAD_ALREADY_READY = "update.download.already.ready";
+	static final String I18N_APPLY_IN_PROGRESS = "update.apply.in.progress";
+	static final String I18N_ROLLBACK_IN_PROGRESS = "update.rollback.in.progress";
+	static final String I18N_IN_PROGRESS_DEFAULT = "update.in.progress.default";
+
 	public static LetsUpdate getInstance() {
 		return INSTANCE;
 	}
@@ -89,14 +103,14 @@ public class LetsUpdate {
 		if (url == null || url.trim().isEmpty()) {
 			status.set(UpdateStatus.IDLE);
 			result.put("success", false);
-			result.put("error", "缺少下载链接");
+			result.put("error", I18N_URL_MISSING);
 			return result;
 		}
 		boolean ok = UpdateDownloader.getInstance().downloadAsync(url.trim(), version);
 		if (!ok) {
 			status.set(UpdateStatus.IDLE);
 			result.put("success", false);
-			result.put("error", "无法启动下载任务");
+			result.put("error", I18N_DOWNLOAD_NOT_START);
 			result.put("status", UpdateStatus.IDLE.getLabel());
 			return result;
 		}
@@ -145,7 +159,7 @@ public class LetsUpdate {
 				}
 			} else if (dl == UpdateDownloadStatus.FAILED) {
 				result.put("success", false);
-				result.put("error", "下载失败，无法应用更新");
+				result.put("error", I18N_APPLY_FAILED_DOWNLOAD_NOT_READY);
 				result.put("status", UpdateStatus.IDLE.getLabel());
 				return result;
 			}
@@ -168,7 +182,7 @@ public class LetsUpdate {
 			if (zip == null || !zip.exists()) {
 				status.set(UpdateStatus.IDLE);
 				result.put("success", false);
-				result.put("error", "更新包文件不存在");
+				result.put("error", I18N_APPLY_FILE_NOT_FOUND);
 				return result;
 			}
 			Path userDir = Paths.get(System.getProperty("user.dir"));
@@ -185,7 +199,7 @@ public class LetsUpdate {
 				status.set(UpdateStatus.IDLE);
 				cleanup(pendingDir);
 				result.put("success", false);
-				result.put("error", "应用更新失败: " + e.getMessage());
+				result.put("error", I18N_APPLY_FAILED);
 				return result;
 			}
 			cleanup(pendingDir);
@@ -195,13 +209,13 @@ public class LetsUpdate {
 			deleteQuietly(versionFile);
 			status.set(UpdateStatus.IDLE);
 			result.put("success", true);
-			result.put("message", "更新已应用，请重启程序生效");
+			result.put("message", I18N_APPLY_SUCCESS);
 			return result;
 		} catch (Exception e) {
 			logger.error("应用更新时发生错误", e);
 			status.set(UpdateStatus.IDLE);
 			result.put("success", false);
-			result.put("error", "应用更新失败: " + e.getMessage());
+			result.put("error", I18N_APPLY_FAILED);
 			return result;
 		}
 	}
@@ -211,11 +225,11 @@ public class LetsUpdate {
 	 */
 	private String getCurrentStatusError(UpdateStatus current) {
 		switch (current) {
-			case DOWNLOADING: return "正在下载更新包，请稍候";
-			case READY: return "已有更新包待应用，请先应用或重新下载";
-			case APPLYING: return "正在应用更新，请稍候";
-			case ROLLBACK: return "正在回滚更新，请稍候";
-			default: return "正在更新中，请稍后再试";
+			case DOWNLOADING: return I18N_DOWNLOAD_IN_PROGRESS;
+			case READY: return I18N_DOWNLOAD_ALREADY_READY;
+			case APPLYING: return I18N_APPLY_IN_PROGRESS;
+			case ROLLBACK: return I18N_ROLLBACK_IN_PROGRESS;
+			default: return I18N_IN_PROGRESS_DEFAULT;
 		}
 	}
 

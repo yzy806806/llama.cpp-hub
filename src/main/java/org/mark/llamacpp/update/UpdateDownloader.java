@@ -37,6 +37,11 @@ public class UpdateDownloader {
     private volatile String currentVersion;
     private volatile String errorMessage;
 
+    // i18n keys — sent via WebSocket for frontend translation
+    private static final String I18N_HTTP_ERROR = "update.download.failed.http";
+    private static final String I18N_CANCELLED = "update.download.cancelled";
+    private static final String I18N_FAILED = "update.download.failed";
+
     public static UpdateDownloader getInstance() {
         return INSTANCE;
     }
@@ -118,7 +123,7 @@ public class UpdateDownloader {
             int respCode = conn.getResponseCode();
             if (respCode != HttpURLConnection.HTTP_OK) {
                 conn.disconnect();
-                fail("下载失败: HTTP " + respCode);
+                fail(I18N_HTTP_ERROR);
                 return;
             }
 
@@ -139,7 +144,7 @@ public class UpdateDownloader {
                         conn.disconnect();
                         cleanup(target);
                         status.set(UpdateDownloadStatus.IDLE);
-                        WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, "用户取消");
+                        WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, I18N_CANCELLED);
                         return;
                     }
                     out.write(buf, 0, len);
@@ -163,11 +168,11 @@ public class UpdateDownloader {
             if (cancelled.get()) {
                 cleanup(target);
                 status.set(UpdateDownloadStatus.IDLE);
-                WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, "用户取消");
+                WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, I18N_CANCELLED);
                 return;
             }
             logger.error("下载更新包时发生错误", e);
-            fail("下载更新失败: " + e.getMessage());
+            fail(I18N_FAILED);
             cleanup(target);
         }
     }

@@ -595,7 +595,7 @@
             if (!result || !result.success) {
                 if (errorEl) {
                     errorEl.style.display = '';
-                    errorEl.textContent = (result && result.error) ? result.error : t('page.settings.update.status.check_failed', '检查失败');
+                    errorEl.textContent = (result && result.error) ? t(result.error, '检查失败') : t('page.settings.update.status.check_failed', '检查失败');
                 }
                 return;
             }
@@ -772,7 +772,7 @@
                 if (progressEl) progressEl.style.display = 'none';
                 if (errorEl) {
                     errorEl.style.display = '';
-                    errorEl.textContent = (result && result.error) ? result.error : t('page.settings.update.error.download_failed', '下载失败');
+                    errorEl.textContent = (result && result.error) ? t(result.error, '下载失败') : t('page.settings.update.error.download_failed', '下载失败');
                 }
                 if (downloadBtn) {
                     downloadBtn.style.display = 'inline-flex';
@@ -807,7 +807,7 @@
             if (!result || !result.success) {
                 if (errorEl) {
                     errorEl.style.display = '';
-                    errorEl.textContent = (result && result.error) ? result.error : '应用更新失败';
+                    errorEl.textContent = (result && result.error) ? t(result.error, '应用更新失败') : '应用更新失败';
                 }
                 if (applyBtn) applyBtn.disabled = false;
                 return;
@@ -872,7 +872,7 @@
             if (applyBtn) applyBtn.style.display = 'none';
             if (errorEl) {
                 errorEl.style.display = '';
-                errorEl.textContent = data.errorMessage || t('page.settings.update.error.download_failed', '下载失败');
+                errorEl.textContent = data.errorMessage ? t(data.errorMessage, '下载失败') : t('page.settings.update.error.download_failed', '下载失败');
             }
             if (downloadBtn) {
                 downloadBtn.style.display = 'inline-flex';
