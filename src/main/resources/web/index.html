@@ -274,6 +274,25 @@
         @media (max-width:960px) {
             #main-fastfetch .ff-split { grid-template-columns:1fr; }
         }
+        .param-desc-modal-body {
+            font-size: 15px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: var(--text-primary);
+            padding: 4px 0;
+        }
+        .param-desc-flag {
+            display: inline-block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--sidebar-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px 8px;
+            margin-bottom: 12px;
+            font-family: Consolas, monospace;
+        }
     </style>
 </head>
 <body>
@@ -1661,6 +1680,33 @@
         function escapeAttr(value) {
             return escapeHtml(value);
         }
+
+        function ensureParamDescModal() {
+            var m = document.getElementById('paramDescModal');
+            if (m) return m;
+            m = document.createElement('div');
+            m.className = 'modal';
+            m.id = 'paramDescModal';
+            m.innerHTML = '<div class="modal-content" style="max-width:560px;">' +
+                '<div class="modal-header"><h3 class="modal-title" id="paramDescModalTitle"></h3>' +
+                '<button class="modal-close" onclick="closeModal(\'paramDescModal\')">&times;</button></div>' +
+                '<div class="modal-body"><div id="paramDescFlag" class="param-desc-flag"></div>' +
+                '<div id="paramDescText" class="param-desc-modal-body"></div></div>' +
+                '<div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal(\'paramDescModal\')" data-i18n="common.close">' +
+                t('common.close', '关闭') + '</button></div></div>';
+            document.body.appendChild(m);
+            return m;
+        }
+
+        window.openParamDescModal = function(name, flag, desc) {
+            var modal = ensureParamDescModal();
+            document.getElementById('paramDescModalTitle').textContent = name || '';
+            var fe = document.getElementById('paramDescFlag');
+            if (flag) { fe.textContent = flag; fe.style.display = ''; }
+            else { fe.style.display = 'none'; }
+            document.getElementById('paramDescText').textContent = desc || '';
+            modal.classList.add('show');
+        };
         
         function ensureDirectoryBrowserModal() {
             let modal = document.getElementById('directoryBrowserModal');
@@ -2256,8 +2302,9 @@
             let html = '';
             
             // 生成带 tooltip 的 label
+            const flagText = param.fullName || param.abbreviation || '';
             const labelContent = description
-                ? `${displayName} <i class="fas fa-question-circle" style="color: #DCDCDC; cursor: help; margin-left: 4px;" title="${description}"></i>`
+                ? `${displayName} <i class="fas fa-question-circle param-desc-trigger" style="color: #DCDCDC; cursor: pointer; margin-left: 4px;" title="${escapeAttr(description)}" data-param-name="${escapeAttr(displayName)}" data-param-flag="${escapeAttr(flagText)}" data-param-desc="${escapeAttr(description)}"></i>`
                 : `${displayName}`;
             const labelHtml = `<div class="param-label-row" style="display:flex; align-items:center; gap: 0.4rem; line-height: 1.1;">` +
                 `<input class="form-check-input param-enable-toggle" type="checkbox" id="${enableId}" checked style="margin: 0; width: 14px; height: 14px; flex: 0 0 auto; transform: translateY(1px);">` +
@@ -2410,6 +2457,16 @@
             }
         }
         
+        // Param desc trigger click
+        document.addEventListener('click', function(e) {
+            var t = e.target;
+            if (t && t.classList && t.classList.contains('param-desc-trigger')) {
+                openParamDescModal(t.getAttribute('data-param-name') || '', t.getAttribute('data-param-flag') || '', t.getAttribute('data-param-desc') || '');
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
+
         // Window clicks
         window.onclick = function(e) {
             if (e.target.classList.contains('modal')) {

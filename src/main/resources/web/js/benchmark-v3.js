@@ -481,7 +481,7 @@ function renderParamField(p) {
   const flagText = abbr || fullName;
   const flagHtml = ' <span style="font-weight:400;color:var(--text-secondary);font-size:12px;">' + escapeHtml(flagText) + '</span>';
   const labelContent = description
-    ? displayName + flagHtml + ' <i class="fas fa-question-circle" style="color:#DCDCDC;cursor:help;margin-left:4px;" title="' + escapeHtml(description) + '"></i>'
+    ? displayName + flagHtml + ' <i class="fas fa-question-circle param-desc-trigger" style="color:#DCDCDC;cursor:pointer;margin-left:4px;" title="' + escapeHtml(description) + '" data-param-name="' + escapeHtml(displayName) + '" data-param-flag="' + escapeHtml(flagText) + '" data-param-desc="' + escapeHtml(description) + '"></i>'
     : displayName + flagHtml;
 
   const labelHtml = '<div class="param-label-row" style="display:flex;align-items:center;gap:0.4rem;line-height:1.1;">' +

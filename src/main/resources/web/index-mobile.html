@@ -174,6 +174,25 @@
             .model-fav-btn { width: 30px; height: 30px; margin-right: 0; font-size: 0.9rem; }
             .model-icon-wrapper { margin-right: 0.2rem; }
         }
+        .param-desc-modal-body {
+            font-size: 15px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: var(--text-primary);
+            padding: 4px 0;
+        }
+        .param-desc-flag {
+            display: inline-block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            background: var(--sidebar-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px 8px;
+            margin-bottom: 12px;
+            font-family: Consolas, monospace;
+        }
     </style>
 </head>
 <body>
@@ -1065,8 +1084,9 @@
             const uiType = getParamUiType(param);
 
             let html = '';
+            const flagText = param.fullName || param.abbreviation || '';
             const labelContent = description
-                ? `${displayName} <i class="fas fa-question-circle" style="color: #DCDCDC; cursor: help; margin-left: 4px;" title="${description}"></i>`
+                ? `${displayName} <i class="fas fa-question-circle param-desc-trigger" style="color: #DCDCDC; cursor: pointer; margin-left: 4px;" title="${escapeHtml(description)}" data-param-name="${escapeHtml(displayName)}" data-param-flag="${escapeHtml(flagText)}" data-param-desc="${escapeHtml(description)}"></i>`
                 : `${displayName}`;
             const labelHtml = `<div class="param-label-row" style="display:flex; align-items:center; gap: 0.4rem; line-height: 1.1;">` +
                 `<input class="form-check-input param-enable-toggle" type="checkbox" id="${enableId}" checked style="margin: 0; width: 14px; height: 14px; flex: 0 0 auto; transform: translateY(1px);">` +
@@ -1176,6 +1196,33 @@
         function escapeAttrCompat(str) {
             return escapeHtmlCompat(str).replace(/`/g, '&#96;');
         }
+
+        function ensureParamDescModal() {
+            var m = document.getElementById('paramDescModal');
+            if (m) return m;
+            m = document.createElement('div');
+            m.className = 'modal';
+            m.id = 'paramDescModal';
+            m.innerHTML = '<div class="modal-content" style="max-width:560px;">' +
+                '<div class="modal-header"><h3 class="modal-title" id="paramDescModalTitle"></h3>' +
+                '<button class="modal-close" onclick="closeModal(\'paramDescModal\')">&times;</button></div>' +
+                '<div class="modal-body"><div id="paramDescFlag" class="param-desc-flag"></div>' +
+                '<div id="paramDescText" class="param-desc-modal-body"></div></div>' +
+                '<div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal(\'paramDescModal\')">' +
+                t('common.close', '关闭') + '</button></div></div>';
+            document.body.appendChild(m);
+            return m;
+        }
+
+        window.openParamDescModal = function(name, flag, desc) {
+            var modal = ensureParamDescModal();
+            document.getElementById('paramDescModalTitle').textContent = name || '';
+            var fe = document.getElementById('paramDescFlag');
+            if (flag) { fe.textContent = flag; fe.style.display = ''; }
+            else { fe.style.display = 'none'; }
+            document.getElementById('paramDescText').textContent = desc || '';
+            modal.classList.add('show');
+        };
 
         function filterModels(k) {
             k = (k || '').toLowerCase();
@@ -1454,6 +1501,15 @@
 
             container.innerHTML = `<div style="display: grid; grid-template-columns: 1fr; gap: 1rem;">${fields.join('')}</div>`;
         }
+
+        document.addEventListener('click', function(e) {
+            var t = e.target;
+            if (t && t.classList && t.classList.contains('param-desc-trigger')) {
+                openParamDescModal(t.getAttribute('data-param-name') || '', t.getAttribute('data-param-flag') || '', t.getAttribute('data-param-desc') || '');
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        });
     </script>
 </body>
 </html>
