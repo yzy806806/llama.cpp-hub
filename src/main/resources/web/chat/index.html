@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Easy Chat</title>
   <link rel="stylesheet" href="./index.css">
-  <link rel="stylesheet" href="/css/github.min.css">
+  <link rel="stylesheet" href="/css/github.min.css" id="hljsTheme">
+  <link rel="stylesheet" href="/css/github-dark.min.css" id="hljsThemeDark" disabled>
 </head>
 <body>
   <div class="app">
@@ -27,6 +28,8 @@
         <span>⌕</span>
         <input id="searchInput" type="text" placeholder="搜索会话">
       </div>
+
+      <button id="themeToggleChat" class="ghost-button full" type="button" style="gap:8px;font-size:13px;" onclick="toggleTheme()">🌙 夜间模式</button>
 
       <div class="sidebar-label">会话列表</div>
       <ul id="conversationList" class="conversation-list"></ul>
@@ -5773,7 +5776,36 @@ function confirmAudioRecording() {
       });
     }
 
+    /* ── Theme ── */
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      try { localStorage.setItem('llama-hub-theme', theme); } catch (e) {}
+      const btn = document.getElementById('themeToggleChat');
+      const hljs = document.getElementById('hljsTheme');
+      const hljsDark = document.getElementById('hljsThemeDark');
+      if (theme === 'dark') {
+        if (btn) btn.innerHTML = '☀️ 亮色模式';
+        if (hljs) hljs.disabled = true;
+        if (hljsDark) hljsDark.disabled = false;
+      } else {
+        if (btn) btn.innerHTML = '🌙 夜间模式';
+        if (hljs) hljs.disabled = false;
+        if (hljsDark) hljsDark.disabled = true;
+      }
+    }
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme') || 'light';
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    }
+    function initTheme() {
+      const saved = (function(){ try { return localStorage.getItem('llama-hub-theme'); } catch(e){} })();
+      if (saved) { applyTheme(saved); return; }
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) { applyTheme('dark'); return; }
+      applyTheme('light');
+    }
+
     async function init() {
+      initTheme();
       try {
         const resp = await fetch('/api/sys/setting', { method: 'GET' });
         const result = await resp.json();
