@@ -1040,6 +1040,8 @@
   "page.usage_report.tab.token_summary": "Token Summary",
   "page.usage_report.tab.request_logs": "Request Logs",
   "page.usage_report.chart_empty": "No Data",
+  "page.usage_report.chart.per_model": "Per Model",
+  "page.usage_report.chart.daily_title": "Last 7 Days",
   "page.usage_report.filter_label": "Model Filter:",
   "page.usage_report.table.time": "Time",
   "page.usage_report.table.model": "Model",

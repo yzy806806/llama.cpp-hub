@@ -416,9 +416,9 @@ public class AnthropicService {
 
                 if (isStream) {
                 	logger.info("llama.cpp进程响应码: {}，，等待时间：{}", responseCode, System.currentTimeMillis() - t);
-                	this.handleStreamResponse(ctx, connection, responseCode, requestId);
+                	this.handleStreamResponse(ctx, connection, responseCode, requestId, modelName);
                 } else {
-                	this.handleNonStreamResponse(ctx, connection, responseCode, requestId);
+                	this.handleNonStreamResponse(ctx, connection, responseCode, requestId, modelName);
                 }
             } catch (Exception e) {
                 logger.info("Error forwarding Anthropic request to llama.cpp", e);
@@ -590,7 +590,7 @@ public class AnthropicService {
         });
     }
 
-    private void handleNonStreamResponse(ChannelHandlerContext ctx, HttpURLConnection connection, int responseCode, String requestId) throws IOException {
+    private void handleNonStreamResponse(ChannelHandlerContext ctx, HttpURLConnection connection, int responseCode, String requestId, String modelName) throws IOException {
         String responseBody;
         if (responseCode >= 200 && responseCode < 300) {
             try (BufferedReader br = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
@@ -615,9 +615,14 @@ public class AnthropicService {
         if (requestId != null) {
             try {
                 JsonElement root = JsonParser.parseString(responseBody);
-                if (root.isJsonObject() && root.getAsJsonObject().has("timings")) {
-                    Timing timing = gson.fromJson(root.getAsJsonObject().get("timings"), Timing.class);
-                    ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+                if (root.isJsonObject()) {
+                    JsonObject obj = root.getAsJsonObject();
+                    if (obj.has("timings")) {
+                        Timing timing = gson.fromJson(obj.get("timings"), Timing.class);
+                        ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+                    } else if (obj.has("usage")) {
+                        LlamaRecordService.getInstance().recordUsage(requestId, modelName, obj.getAsJsonObject("usage"));
+                    }
                 }
             } catch (Exception ignore) {}
         }
@@ -672,6 +677,8 @@ public class AnthropicService {
             if (oaiRes.has("timings")) {
                 Timing timing = gson.fromJson(oaiRes.get("timings"), Timing.class);
                 ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+            } else if (oaiRes.has("usage")) {
+                LlamaRecordService.getInstance().recordUsage(requestId, modelName, oaiRes.getAsJsonObject("usage"));
             }
             JsonObject anthropicRes = convertOaiResponseToAnthropic(oaiRes);
             responseBody = JsonUtil.toJson(anthropicRes);
@@ -696,7 +703,7 @@ public class AnthropicService {
         });
     }
 
-    private void handleStreamResponse(ChannelHandlerContext ctx, HttpURLConnection connection, int responseCode, String requestId) throws IOException {
+    private void handleStreamResponse(ChannelHandlerContext ctx, HttpURLConnection connection, int responseCode, String requestId, String modelName) throws IOException {
         HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream; charset=UTF-8");
         response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
@@ -733,12 +740,17 @@ public class AnthropicService {
                         break;
                     }
 
-                    if (requestId != null && data.contains("\"timings\"")) {
+                    if (requestId != null && (data.contains("\"timings\"") || data.contains("\"usage\""))) {
                         try {
                             JsonElement root = JsonParser.parseString(data);
-                            if (root.isJsonObject() && root.getAsJsonObject().has("timings")) {
-                                Timing timing = gson.fromJson(root.getAsJsonObject().get("timings"), Timing.class);
-                                ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+                            if (root.isJsonObject()) {
+                                JsonObject obj = root.getAsJsonObject();
+                                if (obj.has("timings")) {
+                                    Timing timing = gson.fromJson(obj.get("timings"), Timing.class);
+                                    ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+                                } else if (obj.has("usage")) {
+                                    LlamaRecordService.getInstance().recordUsage(requestId, modelName, obj.getAsJsonObject("usage"));
+                                }
                             }
                         } catch (Exception ignore) {}
                     }
@@ -845,12 +857,17 @@ public class AnthropicService {
                 }
 				else 
 				// 统计生成信息 — timings 只在最后一个 chunk 出现，天然作为结束标记
-				if(data.contains("\"timings\"")) {
+				if(data.contains("\"timings\"") || data.contains("\"usage\"")) {
 					try {
 						JsonElement root = JsonParser.parseString(data);
-						if (root.isJsonObject() && root.getAsJsonObject().has("timings")) {
-							Timing timing = gson.fromJson(root.getAsJsonObject().get("timings"), Timing.class);
-							ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+						if (root.isJsonObject()) {
+							JsonObject obj = root.getAsJsonObject();
+							if (obj.has("timings")) {
+								Timing timing = gson.fromJson(obj.get("timings"), Timing.class);
+								ModelRequestTracker.getInstance().updateTiming(requestId, timing);
+							} else if (obj.has("usage")) {
+								LlamaRecordService.getInstance().recordUsage(requestId, modelName, obj.getAsJsonObject("usage"));
+							}
 						}
 					} catch (Exception ignore) {}
 				}

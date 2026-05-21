@@ -2,14 +2,20 @@ package org.mark.llamacpp.server.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import org.mark.llamacpp.server.struct.DailyTokenEntry;
 import org.mark.llamacpp.server.struct.RequestLogEntry;
 import org.mark.llamacpp.server.struct.TokenSummaryEntry;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 public class UsageReportService {
@@ -98,6 +104,56 @@ public class UsageReportService {
 			e.printStackTrace();
 		}
 		result.sort((a, b) -> Long.compare(b.getStartTime(), a.getStartTime()));
+		return result;
+	}
+
+	/**
+	 * 基于请求日志，聚合最近7天（含今天）的每日 Token 用量。
+	 */
+	public List<DailyTokenEntry> getDailyTokenUsage() {
+		List<DailyTokenEntry> result = new ArrayList<>();
+		List<RequestLogEntry> logs = getRequestLogs();
+		if (logs.isEmpty()) {
+			return buildEmptyDailyEntries(result);
+		}
+
+		Map<String, DailyTokenEntry> dayMap = new LinkedHashMap<>();
+		for (RequestLogEntry log : logs) {
+			if (log.getStartTime() <= 0) continue;
+			LocalDate day = Instant.ofEpochMilli(log.getStartTime()).atZone(ZoneId.systemDefault()).toLocalDate();
+			DailyTokenEntry entry = dayMap.get(day.toString());
+			if (entry == null) {
+				entry = new DailyTokenEntry();
+				entry.setDate(day.toString());
+				dayMap.put(day.toString(), entry);
+			}
+			entry.setPromptTokens(entry.getPromptTokens() + log.getPromptTokens());
+			entry.setPredictedTokens(entry.getPredictedTokens() + log.getPredictedTokens());
+			entry.setCacheTokens(entry.getCacheTokens() + log.getCacheTokens());
+		}
+
+		LocalDate today = LocalDate.now();
+		for (int i = 6; i >= 0; i--) {
+			LocalDate d = today.minusDays(i);
+			String key = d.toString();
+			if (dayMap.containsKey(key)) {
+				result.add(dayMap.get(key));
+			} else {
+				DailyTokenEntry empty = new DailyTokenEntry();
+				empty.setDate(key);
+				result.add(empty);
+			}
+		}
+		return result;
+	}
+
+	private List<DailyTokenEntry> buildEmptyDailyEntries(List<DailyTokenEntry> result) {
+		LocalDate today = LocalDate.now();
+		for (int i = 6; i >= 0; i--) {
+			DailyTokenEntry entry = new DailyTokenEntry();
+			entry.setDate(today.minusDays(i).toString());
+			result.add(entry);
+		}
 		return result;
 	}
 

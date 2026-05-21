@@ -1040,6 +1040,8 @@
   "page.usage_report.tab.token_summary": "Token 概览",
   "page.usage_report.tab.request_logs": "请求记录",
   "page.usage_report.chart_empty": "暂无数据",
+  "page.usage_report.chart.per_model": "每模型用量",
+  "page.usage_report.chart.daily_title": "近7天用量",
   "page.usage_report.filter_label": "模型筛选：",
   "page.usage_report.table.time": "时间",
   "page.usage_report.table.model": "模型",

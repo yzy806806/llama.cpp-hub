@@ -1,6 +1,7 @@
 package org.mark.llamacpp.server.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.mark.llamacpp.server.struct.ActiveRequest;
@@ -68,6 +69,19 @@ public class LlamaRecordService {
 	 * @return 解析出的本次 Timing 数据
 	 */
 	public Timing handleStream(String modelId, String json) {
+		return this.handleStream(modelId, json, null);
+	}
+
+	/**
+	 * 处理流式响应中的 timings 数据，将其累加到对应模型的记录中并持久化。
+	 * 若无 timings 但有 usage，则从 usage 提取 token 数据写入 .requests.log。
+	 *
+	 * @param modelId   模型唯一标识
+	 * @param json      包含 timings 或 usage 的 JSON 字符串
+	 * @param requestId 请求 ID（用于写入 .requests.log）
+	 * @return 解析出的本次 Timing 数据
+	 */
+	public Timing handleStream(String modelId, String json, String requestId) {
 		synchronized (this) {
 			Timing timing = this.recordMap.computeIfAbsent(modelId, k -> new Timing());
 			Timing data = null;
@@ -75,7 +89,7 @@ public class LlamaRecordService {
 				JsonObject root = JsonParser.parseString(json).getAsJsonObject();
 				if (root.has("timings")) {
 					data = this.gson.fromJson(root.get("timings"), Timing.class);
-					
+
 					timing.setCache_n(timing.getCache_n() + data.getCache_n());
 					timing.setPrompt_n(timing.getPrompt_n() + data.getPrompt_n());
 					timing.setPrompt_ms(timing.getPrompt_ms() + data.getPrompt_ms());
@@ -88,11 +102,69 @@ public class LlamaRecordService {
 					timing.setDraft_n(timing.getDraft_n() + data.getDraft_n());
 					timing.setDraft_n_accepted(timing.getDraft_n_accepted() + data.getDraft_n_accepted());
 					this.recordTiming(modelId, timing, data);
+				} else if (requestId != null && root.has("usage")) {
+					this.recordUsage(requestId, modelId, root.getAsJsonObject("usage"));
 				}
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
 			return data;
+		}
+	}
+
+	/**
+	 * 从 OpenAI 格式的 usage 字段提取 token 数据，写入 .requests.log。
+	 * 用于远程节点代理场景（无 timings，只有 usage）。
+	 */
+	public void recordUsage(String requestId, String modelId, JsonObject usage) {
+		if (requestId == null || modelId == null || usage == null) return;
+		String logPath = RECORD_DIR + modelId + ".requests.log";
+		try {
+			Map<String, Object> record = new LinkedHashMap<>();
+			record.put("requestId", requestId);
+			record.put("modelId", modelId);
+			record.put("endpoint", "");
+			record.put("wallTime", System.currentTimeMillis());
+			record.put("startTime", System.currentTimeMillis());
+			record.put("elapsedMs", 0);
+			record.put("status", "COMPLETED");
+			record.put("phase", "GENERATION");
+
+			JsonObject timing = new JsonObject();
+			int cacheN = getJsonInt(usage, "prompt_cache_hit_tokens", 0);
+			int promptN = getJsonInt(usage, "prompt_tokens", 0);
+			int predictedN = getJsonInt(usage, "completion_tokens", 0);
+			timing.addProperty("cache_n", cacheN);
+			timing.addProperty("prompt_n", promptN);
+			timing.addProperty("predicted_n", predictedN);
+			timing.addProperty("prompt_ms", 0);
+			timing.addProperty("predicted_ms", 0);
+			timing.addProperty("prompt_per_token_ms", 0);
+			timing.addProperty("predicted_per_token_ms", 0);
+			timing.addProperty("prompt_per_second", 0);
+			timing.addProperty("predicted_per_second", 0);
+			timing.addProperty("draft_n", 0);
+			timing.addProperty("draft_n_accepted", 0);
+			record.put("timing", timing);
+
+			String line = this.gson.toJson(record);
+			try (BufferedWriter writer = new BufferedWriter(new FileWriter(logPath, true))) {
+				writer.write(line);
+				writer.newLine();
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private int getJsonInt(JsonObject obj, String key, int fallback) {
+		if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) {
+			return fallback;
+		}
+		try {
+			return obj.get(key).getAsInt();
+		} catch (Exception e) {
+			return fallback;
 		}
 	}
 

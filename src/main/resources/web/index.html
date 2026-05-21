@@ -189,7 +189,8 @@
         #main-usage-report .report-pagination button { padding:4px 10px; border:1px solid var(--border-color); border-radius:6px; background:var(--card-bg); color:var(--text-primary); cursor:pointer; font-family:inherit; font-size:12px; }
         #main-usage-report .report-pagination button:hover { border-color:var(--primary-color); color:var(--primary-color); }
         #main-usage-report .report-pagination button:disabled { opacity:0.4; cursor:default; }
-        #main-usage-report .chart-wrap { flex:1; position:relative; border:1px solid var(--border-color); border-radius:8px; padding:6px; background:var(--bg-color); overflow:hidden; min-height:200px; max-height:260px; }
+        #main-usage-report .chart-title { font-size:12px; font-weight:600; color:var(--text-secondary); padding:6px 0 4px; flex-shrink:0; }
+        #main-usage-report .chart-wrap { flex:1; position:relative; border:1px solid var(--border-color); border-radius:8px; padding:6px; background:var(--bg-color); overflow:hidden; min-height:100px; max-height:200px; }
         #main-usage-report .chart-wrap canvas { width:100%; height:100%; display:block; }
         #main-usage-report .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text-secondary); pointer-events:none; }
         #main-usage-report .chart-marker-legend { flex-shrink:0; padding:6px 0 0; display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; line-height:1.6; }
@@ -1336,9 +1337,15 @@
                         </div>
                     </div>
                     <div class="token-chart-col">
+                        <div class="chart-title" data-i18n="page.usage_report.chart.per_model">page.usage_report.chart.per_model</div>
                         <div class="chart-wrap" id="tokenChartWrap">
                             <canvas id="tokenChartCanvas"></canvas>
                             <div id="tokenChartEmpty" class="chart-empty" data-i18n="page.usage_report.chart_empty">page.usage_report.chart_empty</div>
+                        </div>
+                        <div class="chart-title" data-i18n="page.usage_report.chart.daily_title">page.usage_report.chart.daily_title</div>
+                        <div class="chart-wrap" id="dailyChartWrap">
+                            <canvas id="dailyChartCanvas"></canvas>
+                            <div id="dailyChartEmpty" class="chart-empty" data-i18n="page.usage_report.chart_empty">page.usage_report.chart_empty</div>
                         </div>
                     </div>
                 </div>

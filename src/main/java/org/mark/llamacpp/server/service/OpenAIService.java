@@ -867,7 +867,7 @@ public class OpenAIService {
 			}
 		});
 		// 缓存生成信息。
-		Timing timing = LlamaRecordService.getInstance().handleStream(modelName, responseBody);
+		Timing timing = LlamaRecordService.getInstance().handleStream(modelName, responseBody, requestId);
 		if (requestId != null && timing != null) {
 			ModelRequestTracker.getInstance().updateTiming(requestId, timing);
 		}
@@ -920,7 +920,7 @@ public class OpenAIService {
 					else 
 					// 统计生成信息 — timings 只在最后一个 chunk 出现，天然作为结束标记
 					if(data.contains("\"timings\"")) {
-						Timing timing = LlamaRecordService.getInstance().handleStream(modelName, data);
+						Timing timing = LlamaRecordService.getInstance().handleStream(modelName, data, requestId);
 						if (requestId != null && timing != null) {
 							ModelRequestTracker.getInstance().updateTiming(requestId, timing);
 						}
