@@ -170,6 +170,20 @@ Auto-check GitHub Release → download the update package → unzip and replace.
 
 ---
 
+## AI Tool Usage Acknowledgement
+
+As an individual developer outside the internet industry, I don't have much energy for pure manual development in my spare time. AI solves this problem well — I just need to use the simplest technical solutions with plenty of manual review.
+
+The tech stack here is very simple, so AI-assisted development works just fine. Especially since I'm not aiming for deep functionality — being a shell for launching llama.cpp is good enough.
+
+I've heavily used **Qwen3.6-27B-FP8** for planning and writing code, followed by **DeepSeek V4 Flash**. Early on I also used GPT 5.2 through GPT 5.4, but for a simple project like this, that felt like overkill.
+
+Qwen3.6-27B-FP8 is my savior. It has done a tremendous, tremendous, tremendous, tremendous amount of work!
+
+The invincible Qwen3.6-27B and its useless master.
+
+---
+
 ## Build Instructions
 
 ### Manual Build
