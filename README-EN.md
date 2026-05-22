@@ -85,8 +85,41 @@ Aggregate multiple llama.cpp-hub instances into one unified management view. Mas
 
 ### Built-in MCP 🧪
 
-- Use it to test whether your model can actually execute tool calls correctly. Also works as a client to register external MCP tools.
-- These tools aren't very useful. Their purpose is questionable. Just pretend they don't exist.
+Use it to test whether your model can actually execute tool calls. The MCP server listens on port **8075** (enable it in settings).
+
+#### HTTP Routes
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| `GET` | `/mcp/{serviceKey}` | Streamable HTTP SSE |
+| `POST` | `/mcp/{serviceKey}` | Streamable HTTP request |
+| `DELETE` | `/mcp/{serviceKey}` | Delete session |
+| `GET` | `/mcp/{serviceKey}/sse` | SSE connection |
+| `POST` | `/mcp/{serviceKey}/message?sessionId=` | SSE message |
+
+#### Service Keys
+
+| Key | Tools |
+|-----|-------|
+| `llama_hub_info` | 10 |
+| `llama_hub_image` | 1 |
+| `llama_hub_context` | 1 |
+| `llama_hub_file` | 1 |
+
+These tools aren't very useful. Their purpose is questionable. Just pretend they don't exist.
+
+#### MCP Client Config Example
+
+```json
+{
+  "mcpServers": {
+    "llama_hub_info": {
+      "url": "http://localhost:8075/mcp/llama_hub_info",
+      "transportType": "streamable-http"
+    }
+  }
+}
+```
 
 ---
 

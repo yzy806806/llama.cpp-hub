@@ -85,8 +85,41 @@
 
 ### 内置 MCP 🧪
 
-- 用于测试模型能否正确执行 tool call。也可作为客户端注册外部 MCP 工具。
-- 这些工具用处不大，意义不明，一般来说直接无视。
+用于测试模型能否正确执行 tool call。MCP 服务端监听端口 **8075**（需在设置中启用）。
+
+#### HTTP 路由
+
+| 方法 | URL | 说明 |
+|------|-----|------|
+| `GET` | `/mcp/{serviceKey}` | Streamable HTTP SSE |
+| `POST` | `/mcp/{serviceKey}` | Streamable HTTP 请求 |
+| `DELETE` | `/mcp/{serviceKey}` | 删除会话 |
+| `GET` | `/mcp/{serviceKey}/sse` | SSE 连接 |
+| `POST` | `/mcp/{serviceKey}/message?sessionId=` | SSE 消息 |
+
+#### Service Key
+
+| Key | 工具数 |
+|-----|--------|
+| `llama_hub_info` | 10 |
+| `llama_hub_image` | 1 |
+| `llama_hub_context` | 1 |
+| `llama_hub_file` | 1 |
+
+这些工具用处不大，意义不明，一般来说直接无视。
+
+#### MCP 客户端配置示例
+
+```json
+{
+  "mcpServers": {
+    "llama_hub_info": {
+      "url": "http://localhost:8075/mcp/llama_hub_info",
+      "transportType": "streamable-http"
+    }
+  }
+}
+```
 
 ---
 
