@@ -480,7 +480,7 @@ public class LlamaCppProcess {
 			info.unexpected = !this.isRunning.get();
 			try {
 				info.exitCode = this.process.exitValue();
-			} catch (IllegalThreadStateException | IllegalArgumentException e) {
+			} catch (IllegalArgumentException e) {
 				info.exitCode = -1;
 			}
 			this.exitInfoRef.set(info);
