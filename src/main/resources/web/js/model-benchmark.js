@@ -327,8 +327,11 @@ function resetModelBenchmarkForm() {
 function quoteArgIfNeeded(value) {
     const v = value === null || value === undefined ? '' : String(value);
     if (!v) return '';
-    if (!/\s|"/.test(v)) return v;
-    return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    if (v.indexOf('"') !== -1) {
+        return "'" + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + "'";
+    }
+    if (/\s/.test(v)) return '"' + v + '"';
+    return v;
 }
 
 function isTruthyLogicValue(value) {

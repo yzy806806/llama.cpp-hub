@@ -515,6 +515,12 @@ function renderParamField(p) {
         html += '<option value="1"' + (defaultValue === '1' || defaultValue === 'true' || defaultValue === 'on' ? ' selected' : '') + '>true</option>';
         html += '</select>';
         break;
+      case 'JSON':
+        html += '<div style="display:flex;gap:8px;align-items:stretch;">';
+        html += '<input type="text" class="form-control" id="' + escapeHtml(fieldId) + '" name="' + escapeHtml(fieldName) + '" readonly style="flex:1;background:var(--bg-secondary);cursor:pointer;font-family:monospace;font-size:13px;" value="' + escapeHtml(defaultValue) + '" placeholder="' + escapeHtml(t('modal.json_editor.placeholder', '[JSON] Click the button to edit')) + '" onclick="openJsonEditor(\'' + fieldId + '\')">';
+        html += '<button type="button" class="btn btn-secondary btn-sm" onclick="openJsonEditor(\'' + fieldId + '\')" title="' + escapeHtml(t('modal.json_editor.edit', 'Edit JSON')) + '"><i class="fas fa-code"></i></button>';
+        html += '</div>';
+        break;
       case 'STRING':
       default:
         html += '<input type="text" class="form-control" id="' + escapeHtml(fieldId) + '" name="' + escapeHtml(fieldName) + '" value="' + escapeHtml(defaultValue) + '">';

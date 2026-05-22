@@ -1096,6 +1096,10 @@
             let filter = null;
             if (targetInputId === 'param_spec-draft-model') {
                 filter = '.gguf';
+            } else if (targetInputId === 'param_json-schema-file') {
+                filter = '.json';
+            } else if (targetInputId === 'param_mmproj') {
+                filter = '.gguf';
             }
             const modal = document.getElementById('loadModelModal');
             let nodeId = null;
@@ -1287,9 +1291,86 @@
             closeModal('directoryBrowserModal');
         }
 
+        // --- JSON editor modal ---
+        function ensureJsonEditorModal() {
+            let modal = document.getElementById('jsonEditorModal');
+            if (modal) return modal;
+
+            modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.id = 'jsonEditorModal';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:750px;">
+                    <div class="modal-header">
+                        <h3 class="modal-title"><i class="fas fa-code"></i> <span data-i18n="modal.json_editor.title">编辑 JSON</span></h3>
+                        <button class="modal-close" onclick="closeJsonEditor()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div style="margin-bottom:8px;font-size:13px;color:var(--text-secondary);" data-i18n="modal.json_editor.desc">在此输入 JSON 内容</div>
+                        <textarea id="jsonEditorTextarea"
+                            style="width:100%;min-height:300px;font-family:monospace;font-size:14px;resize:vertical;padding:10px;border-radius:0.75rem;border:1px solid var(--border-color);background:var(--input-bg);color:var(--text-primary);"
+                            spellcheck="false"></textarea>
+                        <div id="jsonEditorError" style="color:#ff4444;display:none;margin-top:6px;font-size:13px;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeJsonEditor()">取消</button>
+                        <button class="btn btn-primary" onclick="confirmJsonEditor()">确定</button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+            if (typeof applyI18nToSubtree === 'function') applyI18nToSubtree(modal);
+            return modal;
+        }
+
+        function openJsonEditor(targetInputId) {
+            const el = document.getElementById(targetInputId);
+            if (!el) return;
+            window.__jsonEditorState = { targetInputId: targetInputId };
+
+            const ta = document.getElementById('jsonEditorTextarea');
+            if (!ta) ensureJsonEditorModal();
+            const textarea = document.getElementById('jsonEditorTextarea');
+            textarea.value = el.value || '';
+            document.getElementById('jsonEditorError').style.display = 'none';
+            document.getElementById('jsonEditorModal').classList.add('show');
+            setTimeout(function() { textarea.focus(); }, 100);
+        }
+
+        function confirmJsonEditor() {
+            const textarea = document.getElementById('jsonEditorTextarea');
+            const errorEl = document.getElementById('jsonEditorError');
+            const raw = textarea.value.trim();
+
+            if (raw) {
+                try {
+                    JSON.parse(raw);
+                } catch (e) {
+                    errorEl.textContent = 'JSON 格式错误: ' + e.message;
+                    errorEl.style.display = '';
+                    textarea.focus();
+                    return;
+                }
+            }
+
+            const state = window.__jsonEditorState;
+            if (state && state.targetInputId) {
+                const el = document.getElementById(state.targetInputId);
+                if (el) el.value = raw.replace(/[\r\n]+/g, '');
+            }
+            document.getElementById('jsonEditorModal').classList.remove('show');
+            document.getElementById('jsonEditorError').style.display = 'none';
+        }
+
+        function closeJsonEditor() {
+            document.getElementById('jsonEditorModal').classList.remove('show');
+            document.getElementById('jsonEditorError').style.display = 'none';
+        }
+
         window.addEventListener('i18n:ready', function () {
             const modal = document.getElementById('directoryBrowserModal');
             if (modal) applyI18nToSubtree(modal);
+            const jsonModal = document.getElementById('jsonEditorModal');
+            if (jsonModal) applyI18nToSubtree(jsonModal);
         });
 
         function renderDynamicParams() {
@@ -1413,13 +1494,27 @@
                         html += '</select>';
                         html += '</div>';
                         break;
+                    case 'JSON':
+                        html += '<div class="form-group param-field">';
+                        html += labelHtml;
+                        html += `<div style="display:flex;gap:8px;align-items:stretch;">`;
+                        html += `<input type="text" class="form-control json-param-input" id="${fieldId}" name="${fieldName}" readonly style="flex:1;cursor:pointer;font-family:monospace;font-size:13px;" value="${escapeHtml ? escapeHtml(defaultValue) : defaultValue}" placeholder="[JSON] 点击右侧按钮编辑" onclick="openJsonEditor('${fieldId}')">`;
+                        html += `<button type="button" class="btn btn-secondary btn-sm" onclick="openJsonEditor('${fieldId}')" title="编辑 JSON"><i class="fas fa-code"></i></button>`;
+                        html += `</div>`;
+                        html += '</div>';
+                        break;
                     case 'STRING':
                     default:
-                        if (fieldName === 'spec-draft-model') {
+                        if (fieldName === 'spec-draft-model' || fieldName === 'json-schema-file' || fieldName === 'mmproj') {
+                            const filePlaceholder = fieldName === 'spec-draft-model'
+                                ? '草稿模型 .gguf 文件路径'
+                                : (fieldName === 'mmproj'
+                                    ? 'mmproj .gguf 文件路径'
+                                    : '选择 .json Schema 文件');
                             html += '<div class="form-group param-field">';
                             html += labelHtml;
                             html += `<div style="display:flex; gap:8px; align-items:stretch;">`;
-                            html += `<input type="text" class="form-control" id="${fieldId}" name="${fieldName}" value="${defaultValue}" style="flex:1;" placeholder="草稿模型 .gguf 文件路径">`;
+                            html += `<input type="text" class="form-control" id="${fieldId}" name="${fieldName}" value="${defaultValue}" style="flex:1;" placeholder="${filePlaceholder}">`;
                             html += `<button type="button" class="btn btn-secondary btn-sm" onclick="openFileBrowser('${fieldId}')" style="flex-shrink:0;" title="浏览文件"><i class="fas fa-folder-open"></i></button>`;
                             html += `</div>`;
                             html += '</div>';

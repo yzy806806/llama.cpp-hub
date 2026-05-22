@@ -558,7 +558,7 @@ public class LlamaCppProcess {
 		}
 
 		StringBuilder cur = new StringBuilder();
-		boolean allowSingle = !isWindows();
+		boolean allowSingle = true;
 		boolean inSingle = false;
 		boolean inDouble = false;
 
@@ -581,6 +581,14 @@ public class LlamaCppProcess {
 				if (i + 1 < s.length()) {
 					char n = s.charAt(i + 1);
 					if (n == '\'') {
+						cur.append(n);
+						i++;
+						continue;
+					}
+					if (n == '"') {
+						if (isWindows()) {
+							cur.append(c);
+						}
 						cur.append(n);
 						i++;
 						continue;

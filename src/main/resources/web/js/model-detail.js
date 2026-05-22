@@ -97,10 +97,12 @@ function showModelDetailModal(model) {
                             `</div>` +
                    `</div>` +
                 `</div>`;
+    const kwargsHelpText = t('modal.model_detail.kwargs.help', '');
     let kwargsPanel = `<div id="${modalId}KwargsPanel" style="display:none; height:100%;">` +
-                        `<div style="display:flex; gap:8px; margin-bottom:8px;">` +
+                        `<div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">` +
                         `<button class="btn btn-primary" id="${modalId}KwargsApplyBtn">${t('common.apply', '应用')}</button>` +
                         `<button class="btn btn-secondary" id="${modalId}KwargsClearBtn">${t('common.clear', '清空')}</button>` +
+                        `<i class="fas fa-question-circle param-desc-trigger" style="cursor:pointer;margin-left:auto;color:var(--text-secondary);font-size:16px;" title="${escapeAttrCompat(t('modal.model_detail.kwargs.tooltip_short', '点击查看详细说明'))}" data-param-name="${escapeAttrCompat(t('modal.model_detail.kwargs.title', 'Chat Template Kwargs 说明'))}" data-param-flag="" data-param-desc="${escapeAttrCompat(kwargsHelpText)}"></i>` +
                         `</div>` +
                         `<textarea id="${modalId}KwargsTextarea" style="width:100%; height:calc(100% - 48px); font-family:monospace; font-size:14px; resize:none; padding:10px; border-radius:0.75rem; border:1px solid var(--border-color); background:var(--input-bg); color:var(--text-primary);" placeholder="${t('modal.model_detail.kwargs.placeholder', '请输入 JSON 内容...')}"></textarea>` +
                         `</div>`;

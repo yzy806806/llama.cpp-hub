@@ -939,6 +939,14 @@ public class CommandLineRunner {
 						i++;
 						continue;
 					}
+					if (n == '"') {
+						if (isWindows()) {
+							cur.append(c);
+						}
+						cur.append(n);
+						i++;
+						continue;
+					}
 				}
 				cur.append(c);
 				continue;

@@ -159,15 +159,18 @@ function isTruthyLogicValue(value) {
 function quoteArgIfNeeded(value) {
     const v = value === null || value === undefined ? '' : String(value);
     if (!v) return '';
-    if (!/\s|"/.test(v)) return v;
-    return '"' + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    if (v.indexOf('"') !== -1) {
+        return "'" + v.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + "'";
+    }
+    if (/\s/.test(v)) return '"' + v + '"';
+    return v;
 }
 
 function splitCmdArgs(cmd) {
     const s = cmd === null || cmd === undefined ? '' : String(cmd);
     const tokens = [];
     let buf = '';
-    let inQuotes = false;
+    let quoteChar = null;
     let escape = false;
 
     for (let i = 0; i < s.length; i++) {
@@ -181,11 +184,17 @@ function splitCmdArgs(cmd) {
             escape = true;
             continue;
         }
-        if (ch === '"') {
-            inQuotes = !inQuotes;
+        if (ch === '"' || ch === "'") {
+            if (quoteChar === ch) {
+                quoteChar = null;
+            } else if (quoteChar === null) {
+                quoteChar = ch;
+            } else {
+                buf += ch;
+            }
             continue;
         }
-        if (!inQuotes && /\s/.test(ch)) {
+        if (quoteChar === null && /\s/.test(ch)) {
             if (buf.length > 0) {
                 tokens.push(buf);
                 buf = '';
