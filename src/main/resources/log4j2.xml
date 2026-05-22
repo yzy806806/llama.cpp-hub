@@ -23,11 +23,15 @@
     <Console name="Console" target="SYSTEM_OUT">
       <PatternLayout pattern="${LOG_PATTERN}"/>
     </Console>
+    <Error name="Error" target="SYSTEM_ERR">
+      <PatternLayout pattern="${LOG_PATTERN}"/>
+    </Error>    
   </Appenders>
   <Loggers>
     <Root level="INFO">
       <AppenderRef ref="File"/>
       <AppenderRef ref="Console"/>
+      <AppenderRef ref="Error"/>
     </Root>
   </Loggers>
 </Configuration>
