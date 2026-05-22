@@ -108,6 +108,7 @@ Auto-check GitHub Release → download the update package → unzip and replace.
 - SSHing into remote servers is a pain and you want an easier way
 - You have multiple machines running llama.cpp and want one unified dashboard
 - You enjoy compiling llama.cpp yourself but hate the chaos of managing multiple versions lying around
+- You can never remember llama.cpp's mountain of parameters but still want to use them
 
 ---
 
@@ -118,6 +119,7 @@ Auto-check GitHub Release → download the update package → unzip and replace.
 3. Run the startup script: `.bat` on Windows, `.sh` on Linux
 4. Open `http://localhost:8080` in your browser
 5. Pick a model on the page → click Load → go nuts
+6. If it doesn't start, port 8080 might be in use. Make sure it's available before running.
 
 ---
 
@@ -127,9 +129,24 @@ Auto-check GitHub Release → download the update package → unzip and replace.
 
 > **Heads up**: Each model needs its own folder. Keep GGUF files (shards, mmproj, etc.) for one model in one folder — don't mix different models. Models only show up in `/v1/models` after they're loaded.
 
-> **FYI**: Manual GPU layer splitting is not on the roadmap (llama.cpp auto-uses the `fit` feature to figure out the best CPU/GPU split).
-
 > **PS**: The UI supports Chinese and English. It auto-switches based on your browser language. You can also force it with `?lang=en` in the URL.
+
+> **Note**: The `/v1/models` API endpoint only returns **running models**. If unloaded models showed up in the list, clients would think they're all available, only to find none of them work — and that's just silly.
+
+---
+
+## Guide: Model Paths
+
+1. By default, the program auto-scans the `models/` directory at the root — no need to add it manually
+2. Don't put different models in the same folder. Give each model its own folder. For multimodal models, keep the mmproj file in the same folder too
+3. That's it for now.
+
+## Guide: Usage Statistics
+
+1. Only **successful responses** are counted. If a request is interrupted, those tokens won't be recorded
+2. Remote node usage is NOT tracked. If you burn through 1M tokens on node A, then aggregate node A under node B, node B will show 0 usage for those tokens
+3. As of May 22, 2026, embedding and reranking models have zero usage tracking
+4. That's it for now.
 
 ---
 
