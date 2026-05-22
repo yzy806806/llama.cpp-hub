@@ -10,6 +10,9 @@ import java.util.stream.*;
 import com.google.gson.*;
 
 /**
+ * 
+ * 如果你看到了这句话，说明这是一个过时的实现，不再使用了。它的唯一作用就是检查GGUF模型里是否包含MTP层。
+ * 
  * MTP (Multi-Token Prediction) helper for GGUF models.
  * <p>
  * Provides three operations:
