@@ -183,6 +183,12 @@ llama.cpp lets you do Multi-Token Prediction in two ways:
 
 Why bother with option 2? Because most fine-tune authors don't bother quantizing MTP-enabled versions. So if you want MTP on your favorite shiny variant, you'll have to extract the layers from the original and load them alongside. Whether a variant + original MTP layers actually plays nice together? High-quality answer: beats me.
 
+### A Note on FastFetch
+
+I'm too lazy to implement system info collection myself, so I grabbed fastfetch from GitHub to help out. You can find the binary in the `classes/tools/` directory.
+
+It might get flagged by antivirus software (hello there, 360!). Don't worry — it's generally safe, unless GitHub itself is serving malware. Don't trust me or concerned about security? Go ahead and delete it.
+
 ---
 
 ## Guide: Model Paths
