@@ -751,7 +751,31 @@ public class LlamacppController implements BaseController {
 			}
 			if (modelId == null) {
 				modelId = manager.getFirstModelName();
-			} else if (!manager.getLoadedProcesses().containsKey(modelId)) {
+			}
+
+			JsonObject forward = new JsonObject();
+			forward.addProperty("content", text);
+			forward.addProperty("add_special", addSpecial);
+			forward.addProperty("parse_special", parseSpecial);
+			forward.addProperty("with_pieces", withPieces);
+
+			String nodeId = JsonUtil.getJsonString(obj, "nodeId", null);
+			if (nodeId != null && nodeId.trim().isEmpty()) {
+				nodeId = null;
+			}
+			if (nodeId != null && !nodeId.equals("local")) {
+				forward.addProperty("modelId", modelId);
+				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(nodeId, "POST", "tokenize", forward);
+				if (result.isSuccess()) {
+					JsonElement parsed = JsonUtil.fromJson(result.getBody(), JsonElement.class);
+					LlamaServer.sendJsonResponse(ctx, parsed);
+				} else {
+					LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点tokenize失败: " + result.getBody());
+				}
+				return;
+			}
+
+			if (!manager.getLoadedProcesses().containsKey(modelId)) {
 				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "模型未加载: " + modelId);
 				return;
 			}
@@ -764,12 +788,6 @@ public class LlamacppController implements BaseController {
 				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
 				return;
 			}
-
-			JsonObject forward = new JsonObject();
-			forward.addProperty("content", text);
-			forward.addProperty("add_special", addSpecial);
-			forward.addProperty("parse_special", parseSpecial);
-			forward.addProperty("with_pieces", withPieces);
 
 			String targetUrl = String.format("http://localhost:%d/tokenize", port.intValue());
 			URL url = URI.create(targetUrl).toURL();
@@ -858,6 +876,25 @@ public class LlamacppController implements BaseController {
 			}
 			modelId = modelId.trim();
 
+			JsonObject forward = new JsonObject();
+			forward.add("messages", obj.get("messages"));
+
+			String nodeId = JsonUtil.getJsonString(obj, "nodeId", null);
+			if (nodeId != null && nodeId.trim().isEmpty()) {
+				nodeId = null;
+			}
+			if (nodeId != null && !nodeId.equals("local")) {
+				forward.addProperty("modelId", modelId);
+				NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(nodeId, "POST", "apply-template", forward);
+				if (result.isSuccess()) {
+					JsonElement parsed = JsonUtil.fromJson(result.getBody(), JsonElement.class);
+					LlamaServer.sendJsonResponse(ctx, parsed);
+				} else {
+					LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_GATEWAY, "远程节点apply-template失败: " + result.getBody());
+				}
+				return;
+			}
+
 			if (!obj.has("messages") || obj.get("messages") == null || obj.get("messages").isJsonNull() || !obj.get("messages").isJsonArray()) {
 				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.BAD_REQUEST, "缺少必需的messages参数");
 				return;
@@ -873,9 +910,6 @@ public class LlamacppController implements BaseController {
 				LlamaServer.sendJsonErrorResponse(ctx, HttpResponseStatus.INTERNAL_SERVER_ERROR, "未找到模型端口: " + modelId);
 				return;
 			}
-
-			JsonObject forward = new JsonObject();
-			forward.add("messages", obj.get("messages"));
 
 			String targetUrl = String.format("http://localhost:%d/apply-template", port.intValue());
 			URL url = URI.create(targetUrl).toURL();

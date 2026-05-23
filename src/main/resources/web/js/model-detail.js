@@ -1192,6 +1192,7 @@ function deleteModelChatTemplate() {
 
 async function calculateModelTokens() {
     const modelId = window.__modelDetailModelId;
+    const nodeId = window.__modelDetailNodeId || '';
     const inputEl = document.getElementById('modelDetailModalTokenInput');
     const promptEl = document.getElementById('modelDetailModalTokenPromptOutput');
     const countEl = document.getElementById('modelDetailModalTokenCount');
@@ -1217,6 +1218,7 @@ async function calculateModelTokens() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 modelId,
+                nodeId: nodeId || undefined,
                 messages: [{ role: 'user', content: userText }]
             })
         });
@@ -1234,6 +1236,7 @@ async function calculateModelTokens() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 modelId,
+                nodeId: nodeId || undefined,
                 content: prompt,
                 add_special: true,
                 parse_special: true,
