@@ -119,9 +119,9 @@ function applyModelPatch(modelId, patch, nodeId) {
         if (!Array.isArray(currentModelsData)) return;
         let i;
         if (nodeId) {
-            i = currentModelsData.findIndex(m => m && m.id === modelId && m.nodeId === nodeId);
+            i = currentModelsData.findIndex(m => m && (m.id === modelId || m.alias === modelId) && m.nodeId === nodeId);
         } else {
-            i = currentModelsData.findIndex(m => m && m.id === modelId && (!m.nodeId || m.nodeId === 'local'));
+            i = currentModelsData.findIndex(m => m && (m.id === modelId || m.alias === modelId) && (!m.nodeId || m.nodeId === 'local'));
         }
         if (i < 0) return;
         const prev = currentModelsData[i] || {};
