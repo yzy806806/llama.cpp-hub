@@ -5,7 +5,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -16,6 +18,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
+import org.mark.llamacpp.server.LlamaServer;
 
 /**
  * 	执行命令返回结果
@@ -341,6 +345,7 @@ public class CommandLineRunner {
 			// 一般来说，ROCm会装在这里：C:\Program Files\AMD\ROCm
 			addExistingDir(paths, exeDir.getAbsolutePath());
 			addWindowsRocmDirs(paths);
+			addWindowsCudartDirs(paths, exeDir.getAbsolutePath());
 			prependWindowsPath(env, paths);
 			
 			return;
@@ -434,6 +439,64 @@ public class CommandLineRunner {
 			addExistingDir(paths, new File(dir, "bin").getAbsolutePath());
 			addExistingDir(paths, new File(dir, "bin\\rocblas").getAbsolutePath());
 			addExistingDir(paths, new File(dir, "bin\\hipblaslt").getAbsolutePath());
+		}
+	}
+
+	private static void addWindowsCudartDirs(List<String> paths, String exeDirPath) {
+		if (exeDirPath != null && hasCudartDlls(exeDirPath)) {
+			return;
+		}
+		String root = LlamaServer.getDefaultLlamaCppPath();
+		Path rootPath = Paths.get(root);
+		if (!Files.exists(rootPath) || !Files.isDirectory(rootPath)) {
+			return;
+		}
+		try (java.util.stream.Stream<Path> entries = Files.list(rootPath)) {
+			for (Path subDir : entries.toList()) {
+				if (!Files.isDirectory(subDir)) {
+					continue;
+				}
+				if (!hasCudartDlls(subDir.toString())) {
+					continue;
+				}
+				addExistingDir(paths, subDir.toAbsolutePath().toString());
+			}
+		} catch (IOException e) {
+			// 扫描 cudart 目录失败，静默跳过
+		}
+	}
+
+	private static boolean hasCudartDlls(String dirPath) {
+		if (dirPath == null || dirPath.isBlank()) {
+			return false;
+		}
+		Path dir = Paths.get(dirPath);
+		if (!Files.isDirectory(dir)) {
+			return false;
+		}
+		try (java.util.stream.Stream<Path> entries = Files.list(dir)) {
+			boolean hasCublas = false;
+			boolean hasCublasLt = false;
+			boolean hasCudart = false;
+			for (Path entry : entries.toList()) {
+				if (!Files.isRegularFile(entry)) {
+					continue;
+				}
+				String name = entry.getFileName().toString();
+				String lower = name.toLowerCase(Locale.ROOT);
+				if (lower.startsWith("cublas64_") && lower.endsWith(".dll")) {
+					hasCublas = true;
+				}
+				if (lower.startsWith("cublaslt64_") && lower.endsWith(".dll")) {
+					hasCublasLt = true;
+				}
+				if (lower.startsWith("cudart64_") && lower.endsWith(".dll")) {
+					hasCudart = true;
+				}
+			}
+			return hasCublas && hasCublasLt && hasCudart;
+		} catch (IOException e) {
+			return false;
 		}
 	}
 	
