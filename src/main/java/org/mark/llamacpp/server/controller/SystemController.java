@@ -8,8 +8,10 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -232,11 +234,62 @@ public class SystemController implements BaseController {
 			String rawFilter = params.get("filter");
 			if (rawFilter != null) rawFilter = rawFilter.trim();
 			final String filter = (rawFilter != null && !rawFilter.isEmpty()) ? rawFilter.toLowerCase() : null;
+			String rawExtensions = params.get("extensions");
+			boolean rootsMode = this.parseBooleanParam(params.get("roots"));
+			boolean dirOnly = this.parseBooleanParam(params.get("dirOnly"));
+			boolean fileOnly = this.parseBooleanParam(params.get("fileOnly"));
+			if (dirOnly && fileOnly) {
+				dirOnly = false;
+				fileOnly = false;
+			}
+			long minSize = this.parseLongParam(params.get("minSize"), 0L);
+			long maxSize = this.parseLongParam(params.get("maxSize"), 0L);
+			if (minSize < 0L) minSize = 0L;
+			if (maxSize < 0L) maxSize = 0L;
+			if (maxSize > 0L && minSize > maxSize) {
+				long tmp = minSize;
+				minSize = maxSize;
+				maxSize = tmp;
+			}
+			List<String> extensions = this.parseExtensions(rawExtensions);
+			if (extensions.isEmpty() && filter != null) {
+				extensions = this.parseExtensions(filter);
+			}
+			final List<String> activeExtensions = extensions;
+			final boolean hasExtensionFilter = !activeExtensions.isEmpty();
+			String sortBy = this.normalizeFsSortBy(params.get("sortBy"));
+			String sortOrder = this.normalizeFsSortOrder(params.get("sortOrder"));
 
-			int fileLimit = (filter != null) ? Integer.MAX_VALUE : 10;
+			int fileLimit = hasExtensionFilter ? 500 : 50;
 			int dirLimit = 500;
 			
 			Map<String, Object> data = new HashMap<>();
+
+			if (rootsMode) {
+				List<Map<String, Object>> roots = new ArrayList<>();
+				File[] rootFiles = File.listRoots();
+				if (rootFiles != null) {
+					for (File root : rootFiles) {
+						if (root == null) continue;
+						String path = root.getAbsolutePath();
+						Map<String, Object> item = this.createFsItem(path, path, true, 0L, 0L, false);
+						roots.add(item);
+					}
+				}
+				roots.sort(this.buildFsItemComparator(sortBy, sortOrder));
+				data.put("path", null);
+				data.put("parent", null);
+				data.put("items", roots);
+				data.put("directories", new ArrayList<>(roots));
+				data.put("files", new ArrayList<>());
+				data.put("truncated", false);
+				data.put("truncatedDirs", false);
+				data.put("truncatedFiles", false);
+				data.put("filter", hasExtensionFilter ? rawExtensions : filter);
+				data.put("mode", "roots");
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+				return;
+			}
 			
 			if (in == null || in.isEmpty()) {
 				in = System.getProperty("user.dir");
@@ -276,6 +329,10 @@ public class SystemController implements BaseController {
 			
 			final List<Map<String, Object>> dirs = new ArrayList<>();
 			final List<Map<String, Object>> files = new ArrayList<>();
+			final boolean onlyDirectories = dirOnly;
+			final boolean onlyFiles = fileOnly;
+			final long minFileSize = minSize;
+			final long maxFileSize = maxSize;
 			boolean truncatedDirs = false;
 			boolean truncatedFiles = false;
 			
@@ -285,18 +342,24 @@ public class SystemController implements BaseController {
 					try {
 						String name = p.getFileName() == null ? p.toString() : p.getFileName().toString();
 						if (Files.isDirectory(p)) {
-							Map<String, Object> item = new HashMap<>();
-							item.put("name", name);
-							item.put("path", p.toAbsolutePath().normalize().toString());
+							if (onlyFiles) return;
+							Map<String, Object> item = createFsItem(name, p.toAbsolutePath().normalize().toString(), true, 0L, 0L, false);
 							dirs.add(item);
 							return;
 						}
-						if (filter != null && !name.toLowerCase().endsWith(filter)) {
+						if (onlyDirectories) return;
+						if (hasExtensionFilter && !matchesAnyExtension(name, activeExtensions)) {
 							return;
 						}
-						Map<String, Object> item = new HashMap<>();
-						item.put("name", name);
-						item.put("path", p.toAbsolutePath().normalize().toString());
+						long size = Files.size(p);
+						if (size < minFileSize) return;
+						if (maxFileSize > 0L && size > maxFileSize) return;
+						long lastModified = 0L;
+						try {
+							lastModified = Files.getLastModifiedTime(p).toMillis();
+						} catch (Exception ignore) {
+						}
+						Map<String, Object> item = createFsItem(name, p.toAbsolutePath().normalize().toString(), false, size, lastModified, false);
 						files.add(item);
 					} catch (Exception ignore) {
 					}
@@ -319,17 +382,132 @@ public class SystemController implements BaseController {
 			}
 			
 			Path parent = base.getParent();
+			List<Map<String, Object>> items = new ArrayList<>();
+			if (parent != null) {
+				items.add(this.createFsItem("..", parent.toString(), true, 0L, 0L, true));
+			}
+			items.addAll(outDirs);
+			items.addAll(outFiles);
+			items.sort(this.buildFsItemComparator(sortBy, sortOrder));
 			data.put("path", base.toString());
 			data.put("parent", parent == null ? null : parent.toString());
+			data.put("items", items);
 			data.put("directories", outDirs);
 			data.put("files", outFiles);
+			data.put("truncated", truncatedDirs || truncatedFiles);
 			data.put("truncatedDirs", truncatedDirs);
 			data.put("truncatedFiles", truncatedFiles);
+			data.put("filter", hasExtensionFilter ? rawExtensions : filter);
 			data.put("mode", "directory");
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("处理目录浏览请求时发生错误", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("目录浏览失败: " + e.getMessage()));
+		}
+	}
+
+	private boolean parseBooleanParam(String value) {
+		if (value == null) return false;
+		String v = value.trim();
+		return "1".equals(v) || "true".equalsIgnoreCase(v) || "yes".equalsIgnoreCase(v) || "on".equalsIgnoreCase(v);
+	}
+
+	private long parseLongParam(String value, long defaultValue) {
+		if (value == null) return defaultValue;
+		try {
+			return Long.parseLong(value.trim());
+		} catch (Exception e) {
+			return defaultValue;
+		}
+	}
+
+	private List<String> parseExtensions(String rawExtensions) {
+		List<String> list = new ArrayList<>();
+		if (rawExtensions == null) return list;
+		String[] parts = rawExtensions.split(",");
+		Set<String> seen = new LinkedHashSet<>();
+		for (String part : parts) {
+			String ext = this.normalizeExtension(part);
+			if (ext == null || ext.isEmpty()) continue;
+			if (seen.add(ext)) {
+				list.add(ext);
+			}
+		}
+		return list;
+	}
+
+	private String normalizeExtension(String rawExtension) {
+		if (rawExtension == null) return null;
+		String ext = rawExtension.trim().toLowerCase();
+		if (ext.isEmpty()) return null;
+		if (!ext.startsWith(".")) {
+			ext = "." + ext;
+		}
+		return ext;
+	}
+
+	private boolean matchesAnyExtension(String name, List<String> extensions) {
+		if (name == null || extensions == null || extensions.isEmpty()) return true;
+		String lowerName = name.toLowerCase();
+		for (String ext : extensions) {
+			if (ext != null && !ext.isEmpty() && lowerName.endsWith(ext)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private String normalizeFsSortBy(String sortBy) {
+		if ("size".equalsIgnoreCase(sortBy)) return "size";
+		if ("date".equalsIgnoreCase(sortBy)) return "date";
+		return "name";
+	}
+
+	private String normalizeFsSortOrder(String sortOrder) {
+		return "desc".equalsIgnoreCase(sortOrder) ? "desc" : "asc";
+	}
+
+	private Map<String, Object> createFsItem(String name, String path, boolean isDirectory, long size, long lastModified, boolean isParent) {
+		Map<String, Object> item = new HashMap<>();
+		item.put("name", name);
+		item.put("path", path);
+		item.put("isDirectory", isDirectory);
+		item.put("size", size);
+		item.put("lastModified", lastModified);
+		if (isParent) {
+			item.put("isParent", true);
+		}
+		return item;
+	}
+
+	private Comparator<Map<String, Object>> buildFsItemComparator(String sortBy, String sortOrder) {
+		Comparator<Map<String, Object>> comparator = Comparator.comparingLong(o -> Boolean.TRUE.equals(o.get("isParent")) ? 0L : 1L);
+		Comparator<Map<String, Object>> fieldComparator;
+		if ("size".equals(sortBy)) {
+			fieldComparator = Comparator.comparingLong(o -> this.getFsItemLong(o, "size"));
+		} else if ("date".equals(sortBy)) {
+			fieldComparator = Comparator.comparingLong(o -> this.getFsItemLong(o, "lastModified"));
+		} else {
+			fieldComparator = Comparator.comparing(o -> String.valueOf(o.getOrDefault("name", "")), String.CASE_INSENSITIVE_ORDER);
+		}
+		if ("desc".equals(sortOrder)) {
+			fieldComparator = fieldComparator.reversed();
+		}
+		return comparator
+			.thenComparing(fieldComparator)
+			.thenComparing(o -> String.valueOf(o.getOrDefault("name", "")), String.CASE_INSENSITIVE_ORDER);
+	}
+
+	private long getFsItemLong(Map<String, Object> item, String key) {
+		if (item == null || key == null) return 0L;
+		Object value = item.get(key);
+		if (value instanceof Number) {
+			return ((Number) value).longValue();
+		}
+		try {
+			return Long.parseLong(String.valueOf(value));
+		} catch (Exception e) {
+			return 0L;
 		}
 	}
 	
