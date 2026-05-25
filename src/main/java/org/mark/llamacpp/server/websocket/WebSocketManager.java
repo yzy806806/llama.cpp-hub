@@ -246,16 +246,24 @@ public class WebSocketManager {
      */
     public void sendDownloadStatusEvent(String taskId, String state, long downloadedBytes, long totalBytes,
                                       int partsCompleted, int partsTotal, String fileName, String errorMessage) {
+        sendDownloadStatusEvent(taskId, state, downloadedBytes, totalBytes, partsCompleted, partsTotal, fileName, errorMessage, null, null);
+    }
+
+    public void sendDownloadStatusEvent(String taskId, String state, long downloadedBytes, long totalBytes,
+                                      int partsCompleted, int partsTotal, String fileName, String errorMessage,
+                                      String url, String targetPath) {
         String eventMessage = String.format(
-            "{\"type\":\"download_update\",\"taskId\":\"%s\",\"state\":\"%s\",\"downloadedBytes\":%d,\"totalBytes\":%d,\"partsCompleted\":%d,\"partsTotal\":%d,\"fileName\":\"%s\",\"errorMessage\":\"%s\",\"timestamp\":%d}",
-            taskId != null ? taskId.replace("\"", "\\\"") : "",
-            state != null ? state.replace("\"", "\\\"") : "",
+            "{\"type\":\"download_update\",\"taskId\":\"%s\",\"state\":\"%s\",\"downloadedBytes\":%d,\"totalBytes\":%d,\"partsCompleted\":%d,\"partsTotal\":%d,\"fileName\":\"%s\",\"errorMessage\":\"%s\",\"url\":\"%s\",\"targetPath\":\"%s\",\"timestamp\":%d}",
+            escapeJson(taskId),
+            escapeJson(state),
             downloadedBytes,
             totalBytes,
             partsCompleted,
             partsTotal,
-            fileName != null ? fileName.replace("\"", "\\\"") : "",
-            errorMessage != null ? errorMessage.replace("\"", "\\\"") : "",
+            escapeJson(fileName),
+            escapeJson(errorMessage),
+            escapeJson(url),
+            escapeJson(targetPath),
             System.currentTimeMillis()
         );
         
@@ -267,18 +275,68 @@ public class WebSocketManager {
      */
     public void sendDownloadProgressEvent(String taskId, long downloadedBytes, long totalBytes,
                                         int partsCompleted, int partsTotal, double progressRatio) {
+        sendDownloadProgressEvent(taskId, downloadedBytes, totalBytes, partsCompleted, partsTotal, progressRatio, null, null, null);
+    }
+
+    public void sendDownloadProgressEvent(String taskId, long downloadedBytes, long totalBytes,
+                                        int partsCompleted, int partsTotal, double progressRatio,
+                                        String fileName, String url, String targetPath) {
         String eventMessage = String.format(
-            "{\"type\":\"download_progress\",\"taskId\":\"%s\",\"downloadedBytes\":%d,\"totalBytes\":%d,\"partsCompleted\":%d,\"partsTotal\":%d,\"progressRatio\":%f,\"timestamp\":%d}",
-            taskId != null ? taskId.replace("\"", "\\\"") : "",
+            "{\"type\":\"download_progress\",\"taskId\":\"%s\",\"downloadedBytes\":%d,\"totalBytes\":%d,\"partsCompleted\":%d,\"partsTotal\":%d,\"progressRatio\":%f,\"fileName\":\"%s\",\"url\":\"%s\",\"targetPath\":\"%s\",\"timestamp\":%d}",
+            escapeJson(taskId),
             downloadedBytes,
             totalBytes,
             partsCompleted,
             partsTotal,
             progressRatio,
+            escapeJson(fileName),
+            escapeJson(url),
+            escapeJson(targetPath),
             System.currentTimeMillis()
         );
         
         broadcast(eventMessage);
+    }
+
+    private static String escapeJson(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+            case '\\':
+                sb.append("\\\\");
+                break;
+            case '"':
+                sb.append("\\\"");
+                break;
+            case '\b':
+                sb.append("\\b");
+                break;
+            case '\f':
+                sb.append("\\f");
+                break;
+            case '\n':
+                sb.append("\\n");
+                break;
+            case '\r':
+                sb.append("\\r");
+                break;
+            case '\t':
+                sb.append("\\t");
+                break;
+            default:
+                if (c < 0x20) {
+                    sb.append(String.format("\\u%04x", (int) c));
+                } else {
+                    sb.append(c);
+                }
+                break;
+            }
+        }
+        return sb.toString();
     }
     
     /**

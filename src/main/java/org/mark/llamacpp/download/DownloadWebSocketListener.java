@@ -26,7 +26,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
             task.getPartsCompleted(),
             task.getPartsTotal(),
             task.getFileName(),
-            task.getErrorMessage()
+            task.getErrorMessage(),
+            task.getUrl(),
+            resolveTargetPath(task)
         );
     }
     
@@ -45,7 +47,10 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
                 progress.getTotalBytes(),
                 progress.getPartsCompleted(),
                 progress.getPartsTotal(),
-                task.getProgressRatio()
+                task.getProgressRatio(),
+                task.getFileName(),
+                task.getUrl(),
+                resolveTargetPath(task)
             );
     }
     
@@ -60,7 +65,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
             task.getPartsCompleted(),
             task.getPartsTotal(),
             task.getFileName(),
-            task.getErrorMessage()
+            task.getErrorMessage(),
+            task.getUrl(),
+            resolveTargetPath(task)
         );
     }
     
@@ -75,7 +82,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
             task.getPartsCompleted(),
             task.getPartsTotal(),
             task.getFileName(),
-            error
+            error,
+            task.getUrl(),
+            resolveTargetPath(task)
         );
     }
     
@@ -90,7 +99,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
             task.getPartsCompleted(),
             task.getPartsTotal(),
             task.getFileName(),
-            task.getErrorMessage()
+            task.getErrorMessage(),
+            task.getUrl(),
+            resolveTargetPath(task)
         );
     }
     
@@ -105,7 +116,17 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
             task.getPartsCompleted(),
             task.getPartsTotal(),
             task.getFileName(),
-            task.getErrorMessage()
+            task.getErrorMessage(),
+            task.getUrl(),
+            resolveTargetPath(task)
         );
+    }
+
+    private String resolveTargetPath(DownloadTask task) {
+        try {
+            return task.getTargetPath() == null ? "" : task.getTargetPath().toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 }

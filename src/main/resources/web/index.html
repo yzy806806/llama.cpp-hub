@@ -403,7 +403,7 @@
                 <i class="fas fa-download"></i>
                 <span data-i18n="nav.download">nav.download</span>
             </a>
-            <a href="#" class="nav-item" id="nav-hf" onclick="showHuggingFace(); return false;" style="display: none">
+            <a href="#" class="nav-item" id="nav-hf" onclick="showHuggingFace(); return false;">
                 <i class="fas fa-search"></i>
                 <span data-i18n="nav.hf">nav.hf</span>
             </a>
@@ -1204,36 +1204,104 @@
             <h1 class="page-title" data-i18n="page.hf.title">page.hf.title</h1>
         </div>
 
-        <div class="content-scrollable">
-            <div class="hf-search-row">
-                <div class="search-box">
-                    <i class="fas fa-search search-icon"></i>
-                    <input type="text" id="hfSearchInput" class="search-input" placeholder="page.hf.search_placeholder" data-i18n="page.hf.search_placeholder" data-i18n-attr="placeholder">
-                </div>
-                <select id="hfBaseSelect" class="form-control" style="padding: 4px 8px; width: auto; font-size: 0.875rem;">
-                    <option value="mirror" selected>hf-mirror.com</option>
-                    <option value="official">huggingface.co</option>
-                </select>
-                <select id="hfLimit" class="form-control" style="padding: 4px 8px; width: auto; font-size: 0.875rem;">
-                    <option value="30" selected>30</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                </select>
-                <button class="btn btn-primary" onclick="hfSearch()">
-                    <i class="fas fa-search"></i>
-                    <span data-i18n="common.search">common.search</span>
-                </button>
+        <div class="hf-search-row">
+            <div class="search-box">
+                <i class="fas fa-search search-icon"></i>
+                <input type="text" id="hfSearchInput" class="search-input" placeholder="page.hf.search_placeholder" data-i18n="page.hf.search_placeholder" data-i18n-attr="placeholder">
             </div>
-            <div class="model-list-container">
-                <div id="hfHitsList">
-                    <div class="empty-state" data-i18n="page.hf.empty_state">page.hf.empty_state</div>
+            <select id="hfBaseSelect" class="form-control" style="padding: 4px 8px; width: auto; font-size: 0.875rem;">
+                <option value="mirror" selected>hf-mirror.com</option>
+                <option value="official">huggingface.co</option>
+            </select>
+            <select id="hfLimit" class="form-control" style="padding: 4px 8px; width: auto; font-size: 0.875rem;">
+                <option value="30" selected>30</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+            <button class="btn btn-primary" onclick="hfSearch()">
+                <i class="fas fa-search"></i>
+                <span data-i18n="common.search">common.search</span>
+            </button>
+        </div>
+        <div class="hf-split">
+            <div class="hf-split-left">
+                <div class="model-list-container">
+                    <div id="hfHitsList">
+                        <div class="empty-state" data-i18n="page.hf.empty_state">page.hf.empty_state</div>
+                    </div>
+                    <div class="hf-hits-footer" id="hfHitsFooter" style="display:none;">
+                        <button class="btn btn-secondary" id="hfLoadMoreBtn" onclick="hfLoadMore()" data-i18n="common.load_more">common.load_more</button>
+                    </div>
                 </div>
-                <div class="hf-hits-footer" id="hfHitsFooter" style="display:none;">
-                    <button class="btn btn-secondary" id="hfLoadMoreBtn" onclick="hfLoadMore()" data-i18n="common.load_more">common.load_more</button>
+            </div>
+            <div class="hf-split-right" id="hfDetailPanel">
+                <div class="hf-detail-empty" id="hfDetailEmpty">
+                    <i class="fas fa-arrow-left"></i>
+                    <span data-i18n="page.hf.detail_empty">page.hf.detail_empty</span>
+                </div>
+                <div class="hf-detail-content" id="hfDetailContent" style="display:none">
+                    <div class="hf-detail-head">
+                        <div class="hf-detail-name" id="hfDetailName"></div>
+                        <div class="hf-detail-head-actions">
+                            <a class="btn btn-secondary btn-sm" id="hfDetailModelHomeLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">
+                                <i class="fas fa-home"></i> <span data-i18n="hf.action.view_homepage">hf.action.view_homepage</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="hf-detail-stats" id="hfDetailStats"></div>
+                    <div class="hf-detail-section" id="hfDetailGgufSection">
+                        <div class="hf-detail-section-header">
+                            <h3 data-i18n="page.hf.detail_gguf_title">page.hf.detail_gguf_title</h3>
+                            <div class="hf-detail-section-actions">
+                                <span class="hf-detail-section-summary" id="hfDetailGgufSummary"></span>
+                                <button class="btn btn-secondary btn-sm" id="hfDetailGgufToggleBtn" type="button" style="display:none;" onclick="toggleDetailGgufCollapse()">
+                                    <i class="fas fa-chevron-down"></i>
+                                    <span id="hfDetailGgufToggleText">展开</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="hfDetailGgufList">
+                            <div class="hf-detail-placeholder" data-i18n="page.hf.detail_gguf_placeholder">page.hf.detail_gguf_placeholder</div>
+                        </div>
+                    </div>
+                    <div class="hf-detail-section" id="hfDetailReadmeSection">
+                        <div class="hf-detail-section-header">
+                            <h3 data-i18n="page.hf.detail_readme_title">page.hf.detail_readme_title</h3>
+                            <div class="hf-detail-section-actions">
+                                <a class="btn btn-secondary btn-sm" id="hfDetailReadmeLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">
+                                    <i class="fas fa-external-link-alt"></i> 打开原文
+                                </a>
+                            </div>
+                        </div>
+                        <div id="hfDetailReadmeBody">
+                            <div class="hf-detail-placeholder" data-i18n="page.hf.detail_readme_placeholder">page.hf.detail_readme_placeholder</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </main>
+
+    <div class="modal" id="hfSearchNoticeModal">
+        <div class="modal-content" style="max-width: 760px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="fas fa-triangle-exclamation"></i> <span data-i18n="page.hf.notice.title">page.hf.notice.title</span></h3>
+                <button class="modal-close" onclick="closeModal('hfSearchNoticeModal')">&times;</button>
+            </div>
+            <div class="modal-body hf-search-notice-body">
+                <p data-i18n="page.hf.notice.intro">page.hf.notice.intro</p>
+                <ul class="hf-search-notice-list">
+                    <li data-i18n="page.hf.notice.cn_users">page.hf.notice.cn_users</li>
+                    <li data-i18n="page.hf.notice.global_users">page.hf.notice.global_users</li>
+                    <li data-i18n="page.hf.notice.rate_limit">page.hf.notice.rate_limit</li>
+                    <li data-i18n="page.hf.notice.hf_mirror">page.hf.notice.hf_mirror</li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('hfSearchNoticeModal')" data-i18n="common.close">common.close</button>
+            </div>
+        </div>
+    </div>
 
     <main class="main-area" id="main-console" style="display: none">
         <div class="top-bar">
@@ -1586,22 +1654,22 @@
     </div>
 
     <div class="modal" id="hfGgufModal">
-        <div class="modal-content" style="max-width: 1100px; height: 85vh;background-color: var(--bg-color);">
+        <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title"><i class="fas fa-file"></i> <span data-i18n="modal.hf_gguf.title">modal.hf_gguf.title</span></h3>
                 <button class="modal-close" onclick="closeModal('hfGgufModal')">&times;</button>
             </div>
-            <div class="modal-body" style="display: flex; flex-direction: column; min-height: 0; overflow: hidden;">
-                <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
-                    <div class="mono" id="hfGgufModalRepo" style="color: var(--text-secondary); font-size: 0.875rem; font-weight: 700;">-</div>
-                    <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+            <div class="modal-body">
+                <div class="gguf-toolbar">
+                    <div class="gguf-repo" id="hfGgufModalRepo">-</div>
+                    <div class="gguf-toolbar-actions">
                         <button class="btn btn-secondary btn-sm" onclick="copyAllGgufLinks()" title="modal.hf_gguf.copy_all_title" data-i18n="modal.hf_gguf.copy_all_title" data-i18n-attr="title">
                             <i class="fas fa-copy"></i>
                             <span data-i18n="modal.hf_gguf.copy_all">modal.hf_gguf.copy_all</span>
                         </button>
                     </div>
                 </div>
-                <div id="hfGgufList" style="flex: 1; min-height: 0; overflow: auto;">
+                <div id="hfGgufList">
                     <div class="empty-state" data-i18n="modal.hf_gguf.empty">modal.hf_gguf.empty</div>
                 </div>
             </div>
@@ -3111,6 +3179,7 @@
         function showModelList() {
             document.getElementById('main-model-list').style.display = '';
             document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -3157,9 +3226,31 @@
             }
         }
 
+        function showDownloadManager() {
+            document.getElementById('main-model-list').style.display = 'none';
+            document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
+            document.getElementById('main-hf').style.display = 'none';
+            document.getElementById('main-download').style.display = '';
+            document.getElementById('main-console').style.display = 'none';
+            document.getElementById('main-benchmark-v3').style.display = 'none';
+            document.getElementById('main-usage-report').style.display = 'none';
+            document.getElementById('main-fastfetch').style.display = 'none';
+
+            if (window.DownloadManager && typeof window.DownloadManager.start === 'function') {
+                window.DownloadManager.start();
+            }
+
+            const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
+            navItems.forEach(item => item.classList.remove('active'));
+            const nav = document.getElementById('nav-download');
+            if (nav) nav.classList.add('active');
+        }
+
         function showConsolePage() {
             document.getElementById('main-model-list').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = '';
@@ -3188,32 +3279,13 @@
             navItems.forEach(item => item.classList.remove('active'));
             const nav = document.getElementById('nav-hf');
             if (nav) nav.classList.add('active');
-        }
-
-        // 显示下载管理器
-        function showDownloadManager() {
-            document.getElementById('main-model-list').style.display = 'none';
-            document.getElementById('main-hf').style.display = 'none';
-            document.getElementById('main-settings').style.display = 'none';
-            document.getElementById('main-console').style.display = 'none';
-            document.getElementById('main-benchmark-v3').style.display = 'none';
-            document.getElementById('main-usage-report').style.display = 'none';
-            document.getElementById('main-fastfetch').style.display = 'none';
-            //stopConsoleAuto();
-            const main = document.getElementById('main-download');
-            const hasEntered = main && main.dataset && main.dataset.entered === '1';
-            if (main) main.style.display = '';
-            if (window.DownloadManager && typeof window.DownloadManager.start === 'function') window.DownloadManager.start();
-            if (hasEntered && window.DownloadManager && typeof window.DownloadManager.refreshDownloads === 'function') window.DownloadManager.refreshDownloads();
-            if (main && main.dataset) main.dataset.entered = '1';
-            const navItems = document.querySelectorAll('.sidebar-nav .nav-item');
-            navItems.forEach(item => item.classList.remove('active'));
-            const nav = document.getElementById('nav-download');
-            if (nav) nav.classList.add('active');
+            const notice = document.getElementById('hfSearchNoticeModal');
+            if (notice) notice.classList.add('show');
         }
 
         function showSettingsPage() {
             document.getElementById('main-model-list').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -3237,6 +3309,7 @@
         function showBenchmarkV3() {
             document.getElementById('main-model-list').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -3406,6 +3479,7 @@
         function showFastFetchPage() {
             document.getElementById('main-model-list').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';
@@ -3434,6 +3508,7 @@
         function showUsageReport() {
             document.getElementById('main-model-list').style.display = 'none';
             document.getElementById('main-settings').style.display = 'none';
+            if (typeof cancelDetailGguf === 'function') cancelDetailGguf();
             document.getElementById('main-hf').style.display = 'none';
             document.getElementById('main-download').style.display = 'none';
             document.getElementById('main-console').style.display = 'none';

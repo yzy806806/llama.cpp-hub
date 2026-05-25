@@ -10,6 +10,13 @@ let hfNextStartPage = 0;
 let hfMaxPagesPerFetch = 1;
 let hfLoadingHits = false;
 const HF_SEARCH_PAGE_SIZE = 30;
+let hfDetailAbort = null;
+let hfDetailGgufGroups = [];
+let hfDetailMmprojGroups = [];
+let hfDetailSelected = null;
+let hfDetailGgufCollapsed = true;
+let hfDetailReadmeAbort = null;
+const HF_DETAIL_GGUF_COLLAPSE_LIMIT = 3;
 
 function t(key, fallback) {
     if (window.I18N && typeof window.I18N.t === 'function') {
@@ -71,6 +78,19 @@ async function copyToClipboard(text) {
     }
 }
 
+function formatDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
 function formatFileSize(size) {
     const n = Number(size);
     if (!isFinite(n) || n <= 0) return '';
@@ -93,11 +113,11 @@ function renderHits() {
         const likes = hit.likes != null ? `<span class="badge"><i class="fas fa-thumbs-up"></i> ${hit.likes}</span>` : '';
         const params = hit.parameters ? `<span class="badge"><i class="fas fa-sliders-h"></i> ${hit.parameters}</span>` : '';
         const tag = hit.pipelineTag ? `<span class="badge"><i class="fas fa-tag"></i> ${hit.pipelineTag}</span>` : '';
-        const mod = hit.lastModified ? `<span class="badge"><i class="fas fa-clock"></i> ${hit.lastModified}</span>` : '';
+        const mod = hit.lastModified ? `<span class="badge"><i class="fas fa-clock"></i> ${formatDate(hit.lastModified)}</span>` : '';
         return `
             <div class="list-item">
-                <div style="min-width: 0; flex: 1;">
-                    <div class="list-item-title mono" onclick="selectRepoAndOpen('${escapeHtmlAttr(hit.repoId)}')">${escapeHtml(hit.repoId)}</div>
+                <div>
+                    <div class="list-item-title mono" onclick="showDetail('${escapeHtmlAttr(hit.repoId)}')">${escapeHtml(hit.repoId)}</div>
                     <div class="list-item-meta">
                         ${downloads}
                         ${likes}
@@ -105,12 +125,6 @@ function renderHits() {
                         ${tag}
                         ${mod}
                     </div>
-                </div>
-                <div style="flex-shrink: 0; display: flex; gap: 0.5rem; align-items: center;">
-                    <button class="btn btn-secondary btn-sm" onclick="openModelPage('${escapeHtmlAttr(hit.modelUrl)}')">
-                        <i class="fas fa-external-link-alt"></i>
-                        ${t('hf.action.view_homepage', '查看主页')}
-                    </button>
                 </div>
             </div>
         `;
@@ -189,22 +203,18 @@ function renderGguf() {
             : '';
         return `
             <div class="list-item">
-                <div style="min-width: 0; flex: 1;">
-                    <div class="list-item-title mono file-path" onclick="copyGgufGroupLinks(${idx})">${escapeHtml(group.displayPath || '')}</div>
+                <div class="gguf-info">
+                    <div class="file-path mono" onclick="copyGgufGroupLinks(${idx})">${escapeHtml(group.displayPath || '')}</div>
                     <div class="list-item-meta">
-                        ${sizeBadge}
-                        ${lfsBadge}
-                        ${shardBadge}
+                        ${sizeBadge}${lfsBadge}${shardBadge}
                     </div>
                 </div>
                 <div class="file-actions">
                     <button class="btn btn-secondary btn-sm" onclick="copyGgufGroupLinks(${idx})">
-                        <i class="fas fa-copy"></i>
-                        ${t('hf.gguf.copy_links', '复制链接')}
+                        <i class="fas fa-copy"></i> ${t('hf.gguf.copy_links', '复制链接')}
                     </button>
                     <button class="btn btn-primary btn-sm" onclick="downloadModel(${idx})">
-                        <i class="fas fa-download"></i>
-                        ${t('hf.gguf.create_download', '创建下载')}
+                        <i class="fas fa-download"></i> ${t('hf.gguf.create_download', '创建下载')}
                     </button>
                 </div>
             </div>
@@ -296,7 +306,15 @@ function groupGgufFiles(files) {
 }
 
 async function copyGgufGroupLinks(groupIndex) {
-    const g = hfGgufGroups && hfGgufGroups[groupIndex] ? hfGgufGroups[groupIndex] : null;
+    return copyGgufGroupLinksFrom(hfGgufGroups, groupIndex);
+}
+
+async function copyDetailGgufGroupLinks(groupIndex) {
+    return copyGgufGroupLinksFrom(hfDetailGgufGroups, groupIndex);
+}
+
+async function copyGgufGroupLinksFrom(groups, groupIndex) {
+    const g = groups && groups[groupIndex] ? groups[groupIndex] : null;
     if (!g) return;
     const links = (g.files || []).map(f => f && f.downloadUrl ? String(f.downloadUrl) : '').filter(Boolean);
     if (!links.length) {
@@ -315,12 +333,6 @@ function escapeHtml(str) {
 
 function escapeHtmlAttr(str) {
     return escapeHtml(str).replace(/`/g, '&#96;');
-}
-
-function openModelPage(url) {
-    const u = url == null ? '' : String(url).trim();
-    if (!u) return;
-    window.open(u, '_blank', 'noopener');
 }
 
 function getFileNameFromPath(path) {
@@ -379,9 +391,17 @@ function parseRepoId(repoId) {
 }
 
 async function downloadModel(groupIndex) {
-    const g = hfGgufGroups && hfGgufGroups[groupIndex] ? hfGgufGroups[groupIndex] : null;
+    return createHfDownloadTasks(hfSelected, hfGgufGroups, hfMmprojGroups, groupIndex);
+}
+
+async function downloadDetailModel(groupIndex) {
+    return createHfDownloadTasks(hfDetailSelected, hfDetailGgufGroups, hfDetailMmprojGroups, groupIndex);
+}
+
+async function createHfDownloadTasks(repoId, ggufGroups, mmprojGroups, groupIndex) {
+    const g = ggufGroups && ggufGroups[groupIndex] ? ggufGroups[groupIndex] : null;
     if (!g) return;
-    const repo = parseRepoId(hfSelected);
+    const repo = parseRepoId(repoId);
     if (!repo) {
         showToast(t('toast.error', '错误'), t('hf.error.repo_id_invalid', 'RepoId 无效，无法解析 author/modelId'), 'error');
         return;
@@ -393,7 +413,7 @@ async function downloadModel(groupIndex) {
         showToast(t('toast.info', '提示'), t('hf.error.empty_download_urls', '下载链接为空'), 'info');
         return;
     }
-    const bestMmproj = pickBestMmprojGroup(hfMmprojGroups);
+    const bestMmproj = pickBestMmprojGroup(mmprojGroups);
     if (bestMmproj && bestMmproj.files && bestMmproj.files.length) {
         const mmprojUrls = (bestMmproj.files || [])
             .map(f => f && f.downloadUrl ? String(f.downloadUrl).trim() : '')
@@ -434,6 +454,9 @@ async function downloadModel(groupIndex) {
                 : tf('hf.toast.tasks_created', { count }, '已创建 {count} 个下载任务'),
             'success'
         );
+        if (window.DownloadManager && typeof window.DownloadManager.refreshDownloads === 'function') {
+            window.DownloadManager.refreshDownloads();
+        }
     } catch (e) {
         showToast(t('toast.error', '错误'), e && e.message ? e.message : t('common.network_request_failed', '网络请求失败'), 'error');
     }
@@ -514,8 +537,8 @@ async function hfLoadMore() {
     const safeLimit = isFinite(n) && n > 0 ? Math.min(200, Math.floor(n)) : 30;
     hfMaxPagesPerFetch = Math.max(1, Math.ceil(safeLimit / HF_SEARCH_PAGE_SIZE));
 
-    setHitsFooterVisible(false);
-    setLoadMoreVisible(false);
+    setHitsFooterVisible(true);
+    setLoadMoreVisible(true);
     setLoadMoreState(false, t('common.loading', '加载中...'));
     try {
         hfLoadingHits = true;
@@ -542,6 +565,329 @@ async function hfLoadMore() {
         showToast(t('toast.error', '错误'), e && e.message ? e.message : t('common.network_request_failed', '网络请求失败'), 'error');
     } finally {
         hfLoadingHits = false;
+    }
+}
+
+function showDetail(repoId) {
+    const id = repoId == null ? '' : String(repoId).trim();
+    if (!id) return;
+    const hit = (hfHits || []).find(h => h && String(h.repoId || '') === id);
+    if (!hit) return;
+    cancelDetailGguf();
+    hfDetailSelected = id;
+
+    document.getElementById('hfDetailEmpty').style.display = 'none';
+    const content = document.getElementById('hfDetailContent');
+    content.style.display = 'block';
+
+    document.getElementById('hfDetailName').textContent = id;
+    const modelHomeLink = document.getElementById('hfDetailModelHomeLink');
+    if (modelHomeLink) {
+        const modelUrl = hit.modelUrl ? String(hit.modelUrl).trim() : '';
+        if (modelUrl) {
+            modelHomeLink.href = modelUrl;
+            modelHomeLink.style.display = '';
+        } else {
+            modelHomeLink.style.display = 'none';
+            modelHomeLink.removeAttribute('href');
+        }
+    }
+
+    const parts = [];
+    if (hit.downloads != null) parts.push(`<span><i class="fas fa-download"></i> ${hit.downloads} 下载</span>`);
+    if (hit.likes != null) parts.push(`<span><i class="fas fa-thumbs-up"></i> ${hit.likes} 点赞</span>`);
+    if (hit.lastModified) parts.push(`<span><i class="fas fa-clock"></i> ${formatDate(hit.lastModified)}</span>`);
+    if (hit.pipelineTag) parts.push(`<span><i class="fas fa-tag"></i> ${hit.pipelineTag}</span>`);
+    if (hit.parameters) parts.push(`<span><i class="fas fa-sliders-h"></i> ${hit.parameters}</span>`);
+    document.getElementById('hfDetailStats').innerHTML = parts.join('');
+
+    resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder"><i class="fas fa-spinner fa-spin"></i> ${t('common.loading', '加载中...')}</div>`);
+    fetchDetailGguf(id);
+    fetchDetailReadme(id);
+}
+
+function cancelDetailGguf() {
+    if (hfDetailAbort) {
+        hfDetailAbort.abort();
+        hfDetailAbort = null;
+    }
+    if (hfDetailReadmeAbort) {
+        hfDetailReadmeAbort.abort();
+        hfDetailReadmeAbort = null;
+    }
+    hfDetailGgufGroups = [];
+    hfDetailMmprojGroups = [];
+    hfDetailSelected = null;
+    hfDetailGgufCollapsed = true;
+    updateDetailGgufToolbar();
+    resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder">${t('page.hf.detail_readme_placeholder', '留空占位 — README 解析')}</div>`);
+}
+window.cancelDetailGguf = cancelDetailGguf;
+
+function resetDetailReadmePlaceholder(html) {
+    const body = document.getElementById('hfDetailReadmeBody');
+    if (body) body.innerHTML = html;
+    const link = document.getElementById('hfDetailReadmeLink');
+    if (link) {
+        link.style.display = 'none';
+        link.removeAttribute('href');
+    }
+}
+
+function renderDetailReadmeMarkdown(markdown, readmeUrl) {
+    const body = document.getElementById('hfDetailReadmeBody');
+    if (!body) return;
+    const input = markdown == null ? '' : String(markdown);
+    if (!input.trim()) {
+        body.innerHTML = `<div class="hf-detail-placeholder">${t('hf.readme.empty', 'README 为空')}</div>`;
+        return;
+    }
+    if (window.marked && typeof window.marked.parse === 'function') {
+        try {
+            const rawHtml = window.marked.parse(input, {
+                gfm: true,
+                breaks: false,
+                mangle: false,
+                headerIds: false
+            });
+            const safeHtml = sanitizeReadmeHtml(rawHtml);
+            body.innerHTML = `<div class="hf-detail-markdown">${safeHtml}</div>`;
+            rewriteDetailReadmeLinks(body, readmeUrl);
+            highlightDetailReadmeCode(body);
+            return;
+        } catch (e) {
+        }
+    }
+    body.innerHTML = `<pre class="hf-detail-readme-plain">${escapeHtml(input)}</pre>`;
+}
+
+function sanitizeReadmeHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html == null ? '' : String(html);
+    const blockedTags = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'meta', 'link', 'base'];
+    blockedTags.forEach(tag => {
+        template.content.querySelectorAll(tag).forEach(node => node.remove());
+    });
+    const allNodes = template.content.querySelectorAll('*');
+    allNodes.forEach(node => {
+        Array.from(node.attributes).forEach(attr => {
+            const name = String(attr.name || '').toLowerCase();
+            const value = String(attr.value || '').trim();
+            if (name.startsWith('on')) {
+                node.removeAttribute(attr.name);
+                return;
+            }
+            if (name === 'srcdoc') {
+                node.removeAttribute(attr.name);
+                return;
+            }
+            if ((name === 'href' || name === 'src' || name === 'xlink:href') && !isSafeReadmeUrl(value, node.tagName)) {
+                node.removeAttribute(attr.name);
+                return;
+            }
+            if (name === 'style' && /expression\s*\(|url\s*\(\s*['"]?\s*javascript:/i.test(value)) {
+                node.removeAttribute(attr.name);
+            }
+        });
+    });
+    return template.innerHTML;
+}
+
+function isSafeReadmeUrl(rawUrl, tagName) {
+    const value = rawUrl == null ? '' : String(rawUrl).trim();
+    if (!value || value.startsWith('#') || value.startsWith('/') || value.startsWith('./') || value.startsWith('../')) {
+        return true;
+    }
+    const lower = value.toLowerCase();
+    if (lower.startsWith('javascript:') || lower.startsWith('vbscript:')) {
+        return false;
+    }
+    if (lower.startsWith('data:')) {
+        return String(tagName || '').toUpperCase() === 'IMG' && /^data:image\//i.test(value);
+    }
+    return /^(https?:|mailto:|tel:)/i.test(value);
+}
+
+function highlightDetailReadmeCode(container) {
+    if (!container || !window.hljs || typeof window.hljs.highlightElement !== 'function') return;
+    const blocks = container.querySelectorAll('pre code');
+    blocks.forEach(block => window.hljs.highlightElement(block));
+}
+
+function rewriteDetailReadmeLinks(container, readmeUrl) {
+    if (!container || !readmeUrl) return;
+    const nodes = container.querySelectorAll('a[href], img[src]');
+    nodes.forEach(node => {
+        const attr = node.tagName === 'IMG' ? 'src' : 'href';
+        const raw = node.getAttribute(attr);
+        if (!raw || raw.startsWith('#') || raw.startsWith('data:') || raw.startsWith('javascript:')) return;
+        try {
+            node.setAttribute(attr, new URL(raw, readmeUrl).toString());
+        } catch (e) {
+        }
+        if (node.tagName === 'A') {
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
+}
+
+async function fetchDetailReadme(repoId) {
+    const selected = repoId == null ? '' : String(repoId).trim();
+    if (!selected) return;
+    if (hfDetailReadmeAbort) hfDetailReadmeAbort.abort();
+    const controller = new AbortController();
+    hfDetailReadmeAbort = controller;
+    const baseEl = document.getElementById('hfBase');
+    const base = baseEl ? String(baseEl.value || 'mirror') : 'mirror';
+    resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder"><i class="fas fa-spinner fa-spin"></i> ${t('common.loading', '加载中...')}</div>`);
+    try {
+        const resp = await fetch(`/api/hf/readme?model=${encodeURIComponent(selected)}&base=${encodeURIComponent(base)}`, {
+            signal: controller.signal
+        });
+        const data = await resp.json();
+        if (hfDetailSelected !== selected) return;
+        if (!data || data.success !== true || !data.data) {
+            throw new Error((data && data.error) ? data.error : t('hf.readme.failed', 'README 加载失败'));
+        }
+        renderDetailReadmeMarkdown(data.data.markdown, data.data.readmeUrl);
+        const link = document.getElementById('hfDetailReadmeLink');
+        if (link && data.data.readmeUrl) {
+            link.href = data.data.readmeUrl;
+            link.style.display = '';
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') return;
+        if (hfDetailSelected !== selected) return;
+        resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder">${escapeHtml((e && e.message) ? e.message : t('hf.readme.failed', 'README 加载失败'))}</div>`);
+    } finally {
+        if (hfDetailReadmeAbort === controller) hfDetailReadmeAbort = null;
+    }
+}
+
+function updateDetailGgufToolbar() {
+    const summaryEl = document.getElementById('hfDetailGgufSummary');
+    const toggleBtn = document.getElementById('hfDetailGgufToggleBtn');
+    const toggleText = document.getElementById('hfDetailGgufToggleText');
+    const toggleIcon = toggleBtn ? toggleBtn.querySelector('i') : null;
+    const total = Array.isArray(hfDetailGgufGroups) ? hfDetailGgufGroups.length : 0;
+    const visible = hfDetailGgufCollapsed ? Math.min(total, HF_DETAIL_GGUF_COLLAPSE_LIMIT) : total;
+    const mmprojCount = Array.isArray(hfDetailMmprojGroups) ? hfDetailMmprojGroups.length : 0;
+    if (summaryEl) {
+        if (total <= 0) {
+            summaryEl.textContent = '';
+        } else if (mmprojCount > 0) {
+            summaryEl.textContent = tf(
+                'hf.detail.gguf_summary_with_mmproj',
+                { visible, total, mmproj: mmprojCount },
+                '显示 ' + visible + '/' + total + ' 个 GGUF，下载时自动附带 ' + mmprojCount + ' 个 mmproj'
+            );
+        } else {
+            summaryEl.textContent = tf(
+                'hf.detail.gguf_summary',
+                { visible, total },
+                '显示 ' + visible + '/' + total + ' 个 GGUF'
+            );
+        }
+    }
+    if (toggleBtn) {
+        toggleBtn.style.display = total > HF_DETAIL_GGUF_COLLAPSE_LIMIT ? '' : 'none';
+    }
+    if (toggleText) {
+        toggleText.textContent = hfDetailGgufCollapsed ? t('common.expand', '展开') : t('common.collapse', '收起');
+    }
+    if (toggleIcon) {
+        toggleIcon.className = 'fas ' + (hfDetailGgufCollapsed ? 'fa-chevron-down' : 'fa-chevron-up');
+    }
+}
+
+function toggleDetailGgufCollapse() {
+    if (!hfDetailGgufGroups || hfDetailGgufGroups.length <= HF_DETAIL_GGUF_COLLAPSE_LIMIT) return;
+    hfDetailGgufCollapsed = !hfDetailGgufCollapsed;
+    renderDetailGguf();
+}
+
+function renderDetailGguf() {
+    const container = document.getElementById('hfDetailGgufList');
+    if (!container) return;
+    if (!hfDetailGgufGroups || hfDetailGgufGroups.length === 0) {
+        updateDetailGgufToolbar();
+        container.innerHTML = `<div class="hf-detail-placeholder">${t('hf.gguf.not_found', '未找到 GGUF 文件')}</div>`;
+        return;
+    }
+    const indexedGroups = hfDetailGgufGroups.map((g, index) => ({ g, index }));
+    const visibleGroups = hfDetailGgufCollapsed
+        ? indexedGroups.slice(0, HF_DETAIL_GGUF_COLLAPSE_LIMIT)
+        : indexedGroups;
+    updateDetailGgufToolbar();
+    container.innerHTML = visibleGroups.map(({ g, index }) => {
+        const sizeText = g.totalSize != null ? formatFileSize(g.totalSize) : '';
+        const sizeBadge = sizeText ? `<span class="hf-detail-gguf-badge"><i class="fas fa-hdd"></i> ${sizeText}</span>` : '';
+        const lfsBadge = g.hasLfs ? `<span class="hf-detail-gguf-badge"><i class="fas fa-database"></i> LFS</span>` : '';
+        const shardBadge = g.isSplit
+            ? `<span class="hf-detail-gguf-badge"><i class="fas fa-th-large"></i> ${tf('hf.gguf.shard', { count: g.partCount, total: g.partTotal }, '分片 {count}/{total}')}</span>`
+            : '';
+        return `
+            <div class="hf-detail-gguf-item">
+                <div class="hf-detail-gguf-main">
+                    <span class="hf-detail-gguf-name">${escapeHtml(g.displayPath || '')}</span>
+                    <span class="hf-detail-gguf-meta">${sizeBadge}${lfsBadge}${shardBadge}</span>
+                </div>
+                <div class="hf-detail-gguf-actions">
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="copyDetailGgufGroupLinks(${index})">
+                        <i class="fas fa-copy"></i> ${t('hf.gguf.copy_links', '复制链接')}
+                    </button>
+                    <button class="btn btn-primary btn-sm" type="button" onclick="downloadDetailModel(${index})">
+                        <i class="fas fa-download"></i> ${t('hf.gguf.create_download', '创建下载')}
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function fetchDetailGguf(repoId) {
+    cancelDetailGguf();
+    hfDetailSelected = repoId == null ? null : String(repoId).trim();
+    const container = document.getElementById('hfDetailGgufList');
+    if (container) {
+        container.innerHTML = `<div class="hf-detail-placeholder"><i class="fas fa-spinner fa-spin"></i> ${t('hf.gguf.parsing', '正在解析 GGUF 文件...')}</div>`;
+    }
+    updateDetailGgufToolbar();
+
+    const baseEl = document.getElementById('hfBaseSelect');
+    const base = baseEl ? String(baseEl.value || 'mirror') : 'mirror';
+    const controller = new AbortController();
+    hfDetailAbort = controller;
+
+    try {
+        const resp = await fetch(`/api/hf/gguf?model=${encodeURIComponent(repoId)}&base=${encodeURIComponent(base)}`, {
+            signal: controller.signal
+        });
+        const data = await resp.json();
+        if (!data || data.success !== true) {
+            throw new Error((data && data.error) ? data.error : t('hf.gguf.parse_failed', '解析失败'));
+        }
+        if (controller.signal.aborted) return;
+        const result = data.data || {};
+        const ggufFiles = result.ggufFiles || [];
+        const allGroups = groupGgufFiles(ggufFiles);
+        hfDetailMmprojGroups = allGroups.filter(isMmprojGroup);
+        hfDetailGgufGroups = allGroups.filter(g => !isMmprojGroup(g));
+        hfDetailGgufCollapsed = hfDetailGgufGroups.length > HF_DETAIL_GGUF_COLLAPSE_LIMIT;
+        if (controller.signal.aborted) return;
+        renderDetailGguf();
+    } catch (e) {
+        if (controller.signal.aborted) return;
+        hfDetailGgufGroups = [];
+        hfDetailMmprojGroups = [];
+        hfDetailGgufCollapsed = true;
+        updateDetailGgufToolbar();
+        if (container) {
+            container.innerHTML = `<div class="hf-detail-placeholder">${t('hf.gguf.parse_failed', '解析失败')}</div>`;
+        }
+    } finally {
+        if (hfDetailAbort === controller) hfDetailAbort = null;
     }
 }
 

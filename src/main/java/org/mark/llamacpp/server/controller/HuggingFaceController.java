@@ -2,7 +2,7 @@ package org.mark.llamacpp.server.controller;
 
 import java.util.Map;
 
-import org.mark.llamacpp.crawler.HuggingFaceModelCrawler;
+import org.mark.llamacpp.crawler.HuggingFaceSearcher;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.exception.RequestMethodException;
 import org.mark.llamacpp.server.struct.ApiResponse;
@@ -34,6 +34,10 @@ public class HuggingFaceController implements BaseController {
 			this.handleHFGGUFRequest(ctx, request);
 			return true;
 		}
+		if (uri.startsWith("/api/hf/readme")) {
+			this.handleHFReadmeRequest(ctx, request);
+			return true;
+		}
 		
 		return false;
 	}
@@ -60,7 +64,7 @@ public class HuggingFaceController implements BaseController {
 			int maxPages = parseIntOrDefault(params.get("maxPages"), 0);
 			String base = firstNonBlank(params.get("base"), params.get("baseUrl"), params.get("host"));
 
-			var result = HuggingFaceModelCrawler.searchModels(query.trim(), limit, timeoutSeconds, startPage, maxPages, base);
+			var result = HuggingFaceSearcher.search(query.trim(), limit, timeoutSeconds, startPage, maxPages, base);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
@@ -88,13 +92,35 @@ public class HuggingFaceController implements BaseController {
 			}
 			int timeoutSeconds = parseIntOrDefault(params.get("timeoutSeconds"), 20);
 			String base = firstNonBlank(params.get("base"), params.get("baseUrl"), params.get("host"));
-			var result = HuggingFaceModelCrawler.crawlGGUFFiles(input.trim(), timeoutSeconds, base);
+			var result = HuggingFaceSearcher.listGgufFiles(input.trim(), timeoutSeconds, base);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求被中断: " + e.getMessage()));
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("解析GGUF失败: " + e.getMessage()));
+		}
+	}
+
+	private void handleHFReadmeRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
+		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
+		try {
+			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+			String input = firstNonBlank(params.get("model"), params.get("repoId"), params.get("modelUrl"), params.get("url"),
+					params.get("input"));
+			if (input == null || input.trim().isEmpty()) {
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少必需的model参数"));
+				return;
+			}
+			int timeoutSeconds = parseIntOrDefault(params.get("timeoutSeconds"), 20);
+			String base = firstNonBlank(params.get("base"), params.get("baseUrl"), params.get("host"));
+			var result = HuggingFaceSearcher.fetchReadme(input.trim(), timeoutSeconds, base);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求被中断: " + e.getMessage()));
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取README失败: " + e.getMessage()));
 		}
 	}
 	

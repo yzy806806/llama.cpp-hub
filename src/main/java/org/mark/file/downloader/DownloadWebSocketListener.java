@@ -22,7 +22,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getPartsCompleted(),
 				task.getPartsTotal(),
 				resolveFileName(task),
-				task.getErrorMessage());
+				task.getErrorMessage(),
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	@Override
@@ -33,7 +35,10 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				progress.totalBytes(),
 				progress.partsCompleted(),
 				progress.partsTotal(),
-				progress.progressRatio());
+				progress.progressRatio(),
+				resolveFileName(task),
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	@Override
@@ -48,7 +53,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getPartsCompleted(),
 				task.getPartsTotal(),
 				resolveFileName(task),
-				task.getErrorMessage());
+				task.getErrorMessage(),
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	@Override
@@ -61,7 +68,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getPartsCompleted(),
 				task.getPartsTotal(),
 				resolveFileName(task),
-				error);
+				error,
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	@Override
@@ -74,7 +83,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getPartsCompleted(),
 				task.getPartsTotal(),
 				resolveFileName(task),
-				task.getErrorMessage());
+				task.getErrorMessage(),
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	@Override
@@ -87,7 +98,9 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getPartsCompleted(),
 				task.getPartsTotal(),
 				resolveFileName(task),
-				task.getErrorMessage());
+				task.getErrorMessage(),
+				task.getSourceUrl(),
+				resolveParentPath(task));
 	}
 
 	private String mapState(DownloadTaskStatus status) {
@@ -104,6 +117,15 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 		try {
 			Path target = Path.of(task.getTargetPath());
 			return target.getFileName() == null ? "" : target.getFileName().toString();
+		} catch (Exception e) {
+			return "";
+		}
+	}
+
+	private String resolveParentPath(DownloadTaskInfo task) {
+		try {
+			Path target = Path.of(task.getTargetPath());
+			return target.getParent() == null ? "" : target.getParent().toString();
 		} catch (Exception e) {
 			return "";
 		}

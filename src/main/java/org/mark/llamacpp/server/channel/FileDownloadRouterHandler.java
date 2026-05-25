@@ -233,7 +233,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 //				if (i == 0) {
 //					fileName = sanitizeFileName(req.getName());
 //				}
-				Map<String, Object> r = createAndStartTask(url, targetDir.toString(), null, null);
+				Map<String, Object> r = createAndStartTaskDirect(url, targetDir.toString(), null);
 				if (!Boolean.TRUE.equals(r.get("success"))) {
 					allSuccess = false;
 				}
@@ -634,6 +634,53 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 			Files.createDirectories(targetDir);
 
 			Path targetFile = targetDir.resolve(selectedName).toAbsolutePath().normalize();
+			String lockKey = targetFile.toString();
+			ReentrantLock lock = downloadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
+			lock.lock();
+			try {
+				if (Files.exists(targetFile)) {
+					result.put("success", false);
+					result.put("error", "文件已存在: " + selectedName);
+					return result;
+				}
+				DownloadTaskInfo created = taskManager.createTask(url, targetFile, 8);
+				taskManager.startTask(created.getTaskId());
+				result.put("success", true);
+				result.put("taskId", created.getTaskId());
+				result.put("message", "下载任务创建成功");
+			} finally {
+				lock.unlock();
+				downloadLocks.remove(lockKey, lock);
+			}
+		} catch (Exception e) {
+			result.put("success", false);
+			result.put("error", "创建下载任务失败: " + e.getMessage());
+		}
+		return result;
+	}
+
+	private Map<String, Object> createAndStartTaskDirect(String url, String path, String fileName) {
+		Map<String, Object> result = new HashMap<>();
+		try {
+			String selectedName = trimToNull(fileName);
+			if (selectedName == null) {
+				selectedName = inferFileName(url);
+			}
+			if (selectedName == null || selectedName.isBlank()) {
+				throw new IllegalArgumentException("无法推断文件名");
+			}
+			selectedName = selectedName.replaceAll("[<>:\"/\\\\|?*]", "_").trim();
+			if (selectedName.isEmpty()) {
+				throw new IllegalArgumentException("文件名不合法");
+			}
+
+			Path targetDir = Paths.get(path).toAbsolutePath().normalize();
+			Files.createDirectories(targetDir);
+
+			Path targetFile = targetDir.resolve(selectedName).toAbsolutePath().normalize();
+			if (!targetFile.startsWith(targetDir)) {
+				throw new IllegalArgumentException("目标文件路径不合法");
+			}
 			String lockKey = targetFile.toString();
 			ReentrantLock lock = downloadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
 			lock.lock();

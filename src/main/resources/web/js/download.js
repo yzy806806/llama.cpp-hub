@@ -447,6 +447,11 @@
 
         state.downloads[idx] = {
             ...state.downloads[idx],
+            ...(data && typeof data === 'object' ? {
+                ...(data.url ? { url: data.url } : {}),
+                ...(data.fileName ? { fileName: data.fileName } : {}),
+                ...(data.targetPath ? { targetPath: data.targetPath } : {})
+            } : {}),
             downloadedBytes: data.downloadedBytes,
             totalBytes: data.totalBytes,
             partsCompleted: data.partsCompleted,
