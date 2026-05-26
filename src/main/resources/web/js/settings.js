@@ -363,6 +363,24 @@
             const dir = byId('downloadDirInput');
             if (dir && dl.directory) dir.value = dl.directory;
         }
+
+        // Proxy
+        const px = data.proxy;
+        if (px) {
+            const proxyToggle = byId('toggleProxyEnabled');
+            if (proxyToggle) proxyToggle.checked = !!px.enabled;
+            const proxyType = byId('proxyTypeSelect');
+            if (proxyType && px.type) proxyType.value = px.type;
+            const proxyHost = byId('proxyHostInput');
+            if (proxyHost && px.host) proxyHost.value = px.host;
+            const proxyPort = byId('proxyPortInput');
+            if (proxyPort && px.port) proxyPort.value = px.port;
+            const proxyUsername = byId('proxyUsernameInput');
+            if (proxyUsername && px.username) proxyUsername.value = px.username;
+            const proxyPassword = byId('proxyPasswordInput');
+            if (proxyPassword && px.password) proxyPassword.value = px.password;
+            updateProxyInputState();
+        }
         _populating = false;
     }
 
@@ -383,6 +401,77 @@
         if (toggle && pathInput && passInput) {
             pathInput.disabled = !toggle.checked;
             passInput.disabled = !toggle.checked;
+        }
+    }
+
+    // Proxy toggle — enable/disable the fields
+    function updateProxyInputState() {
+        const toggle = byId('toggleProxyEnabled');
+        const typeSelect = byId('proxyTypeSelect');
+        const hostInput = byId('proxyHostInput');
+        const portInput = byId('proxyPortInput');
+        const usernameInput = byId('proxyUsernameInput');
+        const passwordInput = byId('proxyPasswordInput');
+        const enabled = toggle ? toggle.checked : false;
+        if (typeSelect) typeSelect.disabled = !enabled;
+        if (hostInput) hostInput.disabled = !enabled;
+        if (portInput) portInput.disabled = !enabled;
+        if (usernameInput) usernameInput.disabled = !enabled;
+        if (passwordInput) passwordInput.disabled = !enabled;
+    }
+
+    async function saveProxy() {
+        const toggle = byId('toggleProxyEnabled');
+        const typeSelect = byId('proxyTypeSelect');
+        const hostInput = byId('proxyHostInput');
+        const portInput = byId('proxyPortInput');
+        const usernameInput = byId('proxyUsernameInput');
+        const passwordInput = byId('proxyPasswordInput');
+
+        const enabled = toggle ? toggle.checked : false;
+        const type = typeSelect ? typeSelect.value : 'http';
+        const host = hostInput ? hostInput.value.trim() : '';
+        const port = portInput ? portInput.value.trim() : '';
+        const username = usernameInput ? usernameInput.value.trim() : '';
+        const password = passwordInput ? passwordInput.value : '';
+
+        if (enabled && (!host || !port)) {
+            toast(t('toast.error', '错误'), '请填写代理服务器地址和端口', 'error');
+            return;
+        }
+
+        if (enabled && port) {
+            const portNum = parseInt(port, 10);
+            if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+                toast(t('toast.error', '错误'), '端口号无效（1-65535）', 'error');
+                return;
+            }
+        }
+
+        const payload = {
+            proxyEnabled: enabled,
+            proxyType: type,
+            proxyHost: host,
+            proxyPort: port ? parseInt(port, 10) : 0,
+            proxyUsername: username,
+            proxyPassword: password
+        };
+
+        try {
+            const resp = await fetch('/api/sys/setting', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (!data || !data.success) {
+                toast(t('toast.error', '错误'), (data && data.error) ? data.error : t('common.save_failed', '保存失败'), 'error');
+                return;
+            }
+            toast(t('toast.success', '成功'), t('common.saved', '已保存'), 'success');
+            loadSettings();
+        } catch (e) {
+            toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
         }
     }
 
@@ -1820,6 +1909,13 @@
         const saveDownloadBtn = byId('saveDownloadBtn');
         if (saveDownloadBtn) saveDownloadBtn.addEventListener('click', saveDownload);
 
+        // Proxy tab
+        const proxyToggle = byId('toggleProxyEnabled');
+        if (proxyToggle) proxyToggle.addEventListener('change', updateProxyInputState);
+
+        const saveProxyBtn = byId('saveProxyBtn');
+        if (saveProxyBtn) saveProxyBtn.addEventListener('click', saveProxy);
+
         // Nodes tab
         const nodesTab = document.querySelector('.settings-tab[data-tab="nodes"]');
         if (nodesTab) nodesTab.addEventListener('click', loadNodes);
@@ -1858,7 +1954,7 @@
     window.applyUpdate = applyUpdate;
     window.cancelUpdateDownload = cancelUpdateDownload;
     window.onAppUpdateEvent = handleAppUpdateEvent;
-    window.SettingsPage = { init, load, switchTab, switchUpdateSubTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode, loadLlamaCppReleases, downloadLlamaCppAsset, onLlamaCppDownloadProgress };
+    window.SettingsPage = { init, load, switchTab, switchUpdateSubTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode, loadLlamaCppReleases, downloadLlamaCppAsset, onLlamaCppDownloadProgress, saveProxy };
     window.loadLlamaCppList = loadLlamaCppList;
     window.addLlamaCpp = addLlamaCpp;
     window.editLlamaCpp = editLlamaCpp;

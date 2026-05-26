@@ -651,6 +651,9 @@
                     <button class="settings-tab" data-tab="nodes">
                         <i class="fas fa-network-wired"></i> <span data-i18n="page.settings.tab.nodes">节点</span>
                     </button>
+                    <button class="settings-tab" data-tab="proxy">
+                        <i class="fas fa-proxy"></i> <span data-i18n="page.settings.tab.proxy">代理</span>
+                    </button>
                     <button class="settings-tab" data-tab="update">
                         <i class="fas fa-sync-alt"></i> <span data-i18n="page.settings.tab.update">版本更新</span>
                     </button>
@@ -987,6 +990,82 @@
                                 </div>
                                 <div class="settings-toggle-list" id="nodeList"></div>
                                 <div id="nodeEmptyState" class="empty-state" data-i18n="page.settings.nodes.empty">尚未配置远程节点</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: 代理 -->
+                    <div class="settings-tab-panel" data-tab-panel="proxy">
+                        <div class="settings-panel">
+                            <div class="settings-panel-body">
+                                <div class="settings-hint" data-i18n="page.settings.proxy.hint">配置网络代理，用于下载模型和更新检查。</div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-power-off"></i><span data-i18n="page.settings.proxy.enable">启用代理</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="toggleProxyEnabled">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-network-wired"></i><span data-i18n="page.settings.proxy.type">代理类型</span>
+                                        </div>
+                                        <select id="proxyTypeSelect" class="form-control" style="width:100%;">
+                                            <option value="http">HTTP</option>
+                                            <option value="https">HTTPS</option>
+                                            <option value="socks">SOCKS5</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-server"></i><span data-i18n="page.settings.proxy.host">服务器地址</span>
+                                        </div>
+                                        <input type="text" id="proxyHostInput" class="form-control" placeholder="127.0.0.1 或 example.com">
+                                    </div>
+                                </div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-portal-enter"></i><span data-i18n="page.settings.proxy.port">端口</span>
+                                        </div>
+                                        <input type="number" id="proxyPortInput" class="form-control" placeholder="1080" min="1" max="65535">
+                                    </div>
+                                </div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-user"></i><span data-i18n="page.settings.proxy.username">用户名（可选）</span>
+                                        </div>
+                                        <input type="text" id="proxyUsernameInput" class="form-control" placeholder="">
+                                    </div>
+                                </div>
+                                
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-key"></i><span data-i18n="page.settings.proxy.password">密码（可选）</span>
+                                        </div>
+                                        <input type="password" id="proxyPasswordInput" class="form-control" placeholder="">
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-top:1rem;">
+                                    <button class="btn btn-primary" id="saveProxyBtn">
+                                        <i class="fas fa-save"></i> <span data-i18n="common.save">保存</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

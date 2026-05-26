@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.net.Authenticator;
 import java.net.HttpURLConnection;
+import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -233,7 +235,31 @@ public class SimpleHttpDownloader {
 
 	private HttpURLConnection openConnection(String url, String method) throws IOException {
 		URL target = URI.create(url).toURL();
-		HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+		
+		// 获取代理配置
+		Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+		Authenticator oldAuthenticator = null;
+		
+		// 设置代理认证
+		Authenticator proxyAuth = org.mark.llamacpp.server.LlamaServer.getProxyAuthenticator();
+		if (proxyAuth != null) {
+			oldAuthenticator = Authenticator.setDefault(proxyAuth);
+		}
+		
+		HttpURLConnection connection;
+		try {
+			if (proxy != null) {
+				connection = (HttpURLConnection) target.openConnection(proxy);
+			} else {
+				connection = (HttpURLConnection) target.openConnection();
+			}
+		} finally {
+			// 恢复之前的认证器
+			if (oldAuthenticator != null) {
+				Authenticator.setDefault(oldAuthenticator);
+			}
+		}
+		
 		connection.setRequestMethod(method);
 		connection.setInstanceFollowRedirects(false);
 		connection.setConnectTimeout(this.timeoutMs);

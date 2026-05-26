@@ -103,7 +103,16 @@ public class BasicDownloader {
 	public BasicDownloader(URI uri, Path targetFile) {
 		this.sourceUri = Objects.requireNonNull(uri, "uri");
 		this.targetFile = Objects.requireNonNull(targetFile, "targetFile");
-		this.httpClient = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+		
+		HttpClient.Builder builder = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER);
+		
+		// 添加代理支持
+		java.net.Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+		if (proxy != null) {
+			builder.proxy(java.net.ProxySelector.of(proxy.address()));
+		}
+		
+		this.httpClient = builder.build();
 	}
 	
 	/**

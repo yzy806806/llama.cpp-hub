@@ -351,6 +351,14 @@ public class LlamaServer {
 	private static volatile String httpsPassword = "changeit";
 	private static volatile SslContext httpsSslContext;
 
+	// 代理配置
+	private static volatile boolean proxyEnabled = false;
+	private static volatile String proxyType = "http"; // http, https, socks
+	private static volatile String proxyHost = "";
+	private static volatile int proxyPort = 0;
+	private static volatile String proxyUsername = "";
+	private static volatile String proxyPassword = "";
+
 	/**
 	 * 	Windows 重启功能：所有 Web 服务 Netty ServerChannel 集合，
 	 * 	重启时统一关闭释放端口
@@ -550,6 +558,31 @@ public class LlamaServer {
 			}
 		}
 
+		// 加载代理配置
+		if (root.has("proxy")) {
+			JsonObject proxy = root.getAsJsonObject("proxy");
+			if (proxy != null) {
+				if (proxy.has("enabled")) {
+					proxyEnabled = proxy.get("enabled").getAsBoolean();
+				}
+				if (proxy.has("type")) {
+					proxyType = proxy.get("type").getAsString();
+				}
+				if (proxy.has("host")) {
+					proxyHost = proxy.get("host").getAsString();
+				}
+				if (proxy.has("port")) {
+					proxyPort = proxy.get("port").getAsInt();
+				}
+				if (proxy.has("username")) {
+					proxyUsername = proxy.get("username").getAsString();
+				}
+				if (proxy.has("password")) {
+					proxyPassword = proxy.get("password").getAsString();
+				}
+			}
+		}
+
 		if (root.has("nodeRole")) {
 			nodeRole = root.get("nodeRole").getAsString();
 		}
@@ -609,6 +642,16 @@ public class LlamaServer {
 				https.addProperty("keystorePath", httpsCertPath);
 				https.addProperty("keystorePassword", httpsPassword);
 				root.add("https", https);
+				
+				// 保存代理配置
+				JsonObject proxy = new JsonObject();
+				proxy.addProperty("enabled", proxyEnabled);
+				proxy.addProperty("type", proxyType);
+				proxy.addProperty("host", proxyHost);
+				proxy.addProperty("port", proxyPort);
+				proxy.addProperty("username", proxyUsername);
+				proxy.addProperty("password", proxyPassword);
+				root.add("proxy", proxy);
 	
 				String json = GSON.toJson(root);
 	
@@ -732,6 +775,111 @@ public class LlamaServer {
             }
             if (password != null) {
                 httpsPassword = password;
+            }
+            saveApplicationConfig();
+        }
+    }
+    
+    // ==================== 代理配置 ====================
+    
+    public static boolean isProxyEnabled() {
+        return proxyEnabled;
+    }
+    
+    public static String getProxyType() {
+        return proxyType;
+    }
+    
+    public static String getProxyHost() {
+        return proxyHost;
+    }
+    
+    public static int getProxyPort() {
+        return proxyPort;
+    }
+    
+    public static String getProxyUsername() {
+        return proxyUsername;
+    }
+    
+    public static String getProxyPassword() {
+        return proxyPassword;
+    }
+    
+    /**
+     * 获取完整的代理 URL
+     */
+    public static String getProxyUrl() {
+        if (!proxyEnabled || proxyHost == null || proxyHost.isEmpty() || proxyPort <= 0) {
+            return null;
+        }
+        String url = proxyType + "://" + proxyHost + ":" + proxyPort;
+        return url;
+    }
+    
+    /**
+     * 获取 Java Proxy 对象（包含认证信息）
+     * @return Proxy 对象，如果代理未启用则返回 null
+     */
+    public static java.net.Proxy getProxy() {
+        if (!proxyEnabled || proxyHost == null || proxyHost.isEmpty() || proxyPort <= 0) {
+            return null;
+        }
+        
+        java.net.Proxy.Type proxyTypeEnum;
+        try {
+            proxyTypeEnum = java.net.Proxy.Type.valueOf(proxyType.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            proxyTypeEnum = java.net.Proxy.Type.HTTP;
+        }
+        
+        java.net.InetSocketAddress addr = new java.net.InetSocketAddress(proxyHost, proxyPort);
+        return new java.net.Proxy(proxyTypeEnum, addr);
+    }
+    
+    /**
+     * 获取代理认证信息
+     * @return Authenticator，如果未设置认证则返回 null
+     */
+    public static java.net.Authenticator getProxyAuthenticator() {
+        if (!proxyEnabled || proxyUsername == null || proxyUsername.isEmpty()) {
+            return null;
+        }
+        
+        final String username = proxyUsername;
+        final String password = proxyPassword;
+        
+        return new java.net.Authenticator() {
+            @Override
+            protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                return new java.net.PasswordAuthentication(username, 
+                    password != null ? password.toCharArray() : new char[0]);
+            }
+        };
+    }
+    
+    /**
+     * 更新代理配置
+     */
+    public static void updateProxyConfig(Boolean enabled, String type, String host, Integer port, String username, String password) {
+        synchronized (APPLICATION_CONFIG_LOCK) {
+            if (enabled != null) {
+                proxyEnabled = enabled;
+            }
+            if (type != null) {
+                proxyType = type;
+            }
+            if (host != null) {
+                proxyHost = host;
+            }
+            if (port != null) {
+                proxyPort = port;
+            }
+            if (username != null) {
+                proxyUsername = username;
+            }
+            if (password != null) {
+                proxyPassword = password;
             }
             saveApplicationConfig();
         }
