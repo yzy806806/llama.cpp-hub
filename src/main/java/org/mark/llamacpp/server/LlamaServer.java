@@ -341,6 +341,13 @@ public class LlamaServer {
 
 	private static volatile boolean mcpServerEnabled = false;
 
+	// JIT 自动加载配置
+	private static volatile boolean jitEnabled = true;
+	private static volatile int jitDefaultTtl = 3600;
+	private static volatile int jitMaxLoadedModels = 2;
+	private static volatile String jitLoadStrategy = "lru";
+	private static volatile boolean jitAllowQueue = true;
+
 	private static volatile DefaultMcpServiceImpl mcpServerService;
 
 	private static volatile boolean chatStreamingEnabled = true;
@@ -512,6 +519,29 @@ public class LlamaServer {
 			}
 		}
 		
+		// 加载 JIT 配置
+		if (root.has("jit")) {
+			JsonObject jit = root.getAsJsonObject("jit");
+			if (jit != null) {
+				if (jit.has("enabled")) {
+					jitEnabled = jit.get("enabled").getAsBoolean();
+				}
+				if (jit.has("defaultTtl")) {
+					jitDefaultTtl = jit.get("defaultTtl").getAsInt();
+				}
+				if (jit.has("maxLoadedModels")) {
+					jitMaxLoadedModels = jit.get("maxLoadedModels").getAsInt();
+				}
+				if (jit.has("loadStrategy")) {
+					jitLoadStrategy = jit.get("loadStrategy").getAsString();
+				}
+				if (jit.has("allowQueue")) {
+					jitAllowQueue = jit.get("allowQueue").getAsBoolean();
+				}
+			}
+		}
+	}
+		
 		if (root.has("logging")) {
 			JsonObject logging = root.getAsJsonObject("logging");
 			if (logging != null) {
@@ -597,6 +627,15 @@ public class LlamaServer {
 				compat.add("mcpServer", mcpServer);
 				
 				root.add("compat", compat);
+				
+				// 保存 JIT 配置
+				JsonObject jit = new JsonObject();
+				jit.addProperty("enabled", jitEnabled);
+				jit.addProperty("defaultTtl", jitDefaultTtl);
+				jit.addProperty("maxLoadedModels", jitMaxLoadedModels);
+				jit.addProperty("loadStrategy", jitLoadStrategy);
+				jit.addProperty("allowQueue", jitAllowQueue);
+				root.add("jit", jit);
 				
 				JsonObject logging = new JsonObject();
 				logging.addProperty("logRequestUrl", logRequestUrl);
@@ -794,6 +833,27 @@ public class LlamaServer {
 public static boolean isMcpServerRunning() {
      	DefaultMcpServiceImpl service = mcpServerService;
      	return service != null && service.isRunning();
+     }
+     
+     // JIT 配置 Getter
+     public static boolean isJitEnabled() {
+     	return jitEnabled;
+     }
+     
+     public static int getJitDefaultTtl() {
+     	return jitDefaultTtl;
+     }
+     
+     public static int getJitMaxLoadedModels() {
+     	return jitMaxLoadedModels;
+     }
+     
+     public static String getJitLoadStrategy() {
+     	return jitLoadStrategy;
+     }
+     
+     public static boolean isJitAllowQueue() {
+     	return jitAllowQueue;
      }
      
      public static SslContext getHttpsSslContext() {

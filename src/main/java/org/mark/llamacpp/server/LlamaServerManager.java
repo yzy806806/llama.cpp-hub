@@ -28,6 +28,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
@@ -129,6 +131,23 @@ public class LlamaServerManager {
 	 * 	正在加载中的模型。
 	 */
 	private Set<String> loadingModels = new HashSet<>();
+	
+	// ==================== JIT 相关字段 ====================
+	
+	/**
+	 * 模型最后活动时间（用于 TTL）
+	 */
+	private final Map<String, Long> modelLastActiveTime = new ConcurrentHashMap<>();
+	
+	/**
+	 * TTL 定时检查调度器
+	 */
+	private ScheduledExecutorService ttlScheduler;
+	
+	/**
+	 * JIT 是否已启动
+	 */
+	private volatile boolean jitSchedulerStarted = false;
 	
 	/**
 	 * 线程池，用于异步执行模型加载任务
@@ -885,6 +904,156 @@ public class LlamaServerManager {
 		}
 	}
 	
+	// ==================== JIT 相关方法 ====================
+	
+	/**
+	 * 获取当前已加载的模型数量
+	 * @return 已加载模型数量
+	 */
+	public int getLoadedModelCount() {
+		synchronized (this.processLock) {
+			return this.loadedProcesses.size();
+		}
+	}
+	
+	/**
+	 * 更新模型的最后活动时间（用于 TTL）
+	 * @param modelId 模型ID
+	 */
+	public void updateModelActiveTime(String modelId) {
+		if (modelId != null && !modelId.trim().isEmpty()) {
+			modelLastActiveTime.put(modelId, System.currentTimeMillis());
+			// 确保 JIT 调度器已启动
+			startJitScheduler();
+		}
+	}
+	
+	/**
+	 * 启动 JIT TTL 调度器
+	 */
+	private synchronized void startJitScheduler() {
+		if (jitSchedulerStarted) {
+			return;
+		}
+		if (!LlamaServer.isJitEnabled()) {
+			logger.info("JIT 功能未启用，跳过启动 TTL 调度器");
+			return;
+		}
+		ttlScheduler = new ScheduledThreadPoolExecutor(1, 
+			Thread.ofVirtual().name("jit-ttl-checker-", 0).factory());
+		// 每 60 秒检查一次
+		int checkInterval = 60;
+		ttlScheduler.scheduleAtFixedRate(
+			this::checkAndEvictIdleModels,
+			checkInterval, checkInterval, TimeUnit.SECONDS);
+		jitSchedulerStarted = true;
+		logger.info("JIT TTL 调度器已启动，检查间隔: {} 秒", checkInterval);
+	}
+	
+	/**
+	 * 检查并卸载空闲超时的模型
+	 */
+	private void checkAndEvictIdleModels() {
+		if (!LlamaServer.isJitEnabled()) {
+			return;
+		}
+		int defaultTtl = LlamaServer.getJitDefaultTtl();
+		if (defaultTtl <= 0) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		long ttlMillis = defaultTtl * 1000L;
+		
+		List<String> modelsToEvict = new ArrayList<>();
+		synchronized (this.processLock) {
+			for (Map.Entry<String, Long> entry : modelLastActiveTime.entrySet()) {
+				String modelId = entry.getKey();
+				long lastActive = entry.getValue();
+				// 跳过正在加载的模型
+				if (loadingProcesses.containsKey(modelId) || loadingModels.contains(modelId)) {
+					continue;
+				}
+				if (now - lastActive > ttlMillis) {
+					modelsToEvict.add(modelId);
+				}
+			}
+		}
+		
+		for (String modelId : modelsToEvict) {
+			logger.info("JIT: 模型 {} 空闲超时，准备卸载", modelId);
+			stopModel(modelId);
+			modelLastActiveTime.remove(modelId);
+		}
+	}
+	
+	/**
+	 * 根据策略卸载模型（LRU/FIFO）
+	 * @param strategy 策略：lru 或 fifo
+	 * @return 被卸载的模型ID，如果没有可卸载的模型返回 null
+	 */
+	public String evictModel(String strategy) {
+		synchronized (this.processLock) {
+			if (loadedProcesses.isEmpty()) {
+				return null;
+			}
+		}
+		
+		String modelToEvict = null;
+		synchronized (this.processLock) {
+			if ("fifo".equalsIgnoreCase(strategy)) {
+				// FIFO：卸载最早加载的
+				modelToEvict = loadedProcesses.keySet().iterator().next();
+			} else {
+				// LRU（默认）：卸载最近最少使用的
+				Long oldestTime = Long.MAX_VALUE;
+				for (Map.Entry<String, Long> entry : modelLastActiveTime.entrySet()) {
+					if (entry.getValue() < oldestTime) {
+						oldestTime = entry.getValue();
+						modelToEvict = entry.getKey();
+					}
+				}
+			}
+		}
+		
+		if (modelToEvict != null) {
+			logger.info("JIT: 策略 {} 选中模型 {} 进行卸载", strategy, modelToEvict);
+			stopModel(modelToEvict);
+			modelLastActiveTime.remove(modelToEvict);
+		}
+		return modelToEvict;
+	}
+	
+	/**
+	 * 等待模型加载完成
+	 * @param modelId 模型ID
+	 * @param timeoutMs 超时时间（毫秒）
+	 * @return 是否在超时前加载完成
+	 */
+	public boolean waitForModelLoad(String modelId, long timeoutMs) {
+		long startTime = System.currentTimeMillis();
+		while (System.currentTimeMillis() - startTime < timeoutMs) {
+			synchronized (this.processLock) {
+				if (loadedProcesses.containsKey(modelId)) {
+					return true;
+				}
+				// 检查加载是否失败
+				if (loadingProcesses.containsKey(modelId) || loadingModels.contains(modelId)) {
+					// 还在加载中，继续等待
+				} else {
+					// 不在加载列表中，说明加载失败了
+					return false;
+				}
+			}
+			try {
+				Thread.sleep(100);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				return false;
+			}
+		}
+		return false;
+	}
+	
 	/**
 	 * 	获取第一个已经加载的模型的名字。
 	 * @return
@@ -1186,6 +1355,8 @@ public class LlamaServerManager {
 						this.loadedProcesses.put(modelId, process);
 						this.modelPorts.put(modelId, actualPort);
 					}
+					// 更新 JIT 活动时间
+					this.updateModelActiveTime(modelId);
 					LlamaServer.sendModelLoadEvent(modelId, true, "模型加载成功", actualPort);
 //					// 这里请求一次
 //					try {

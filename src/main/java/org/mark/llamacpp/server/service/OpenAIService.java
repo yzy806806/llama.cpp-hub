@@ -12,6 +12,8 @@ import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -19,9 +21,12 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.mark.llamacpp.gguf.GGUFModel;
 import org.mark.llamacpp.server.LlamaCppProcess;
 import org.mark.llamacpp.server.LlamaHubNode;
+import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.ConfigManager;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
@@ -329,8 +334,17 @@ public class OpenAIService {
 						this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
 						return;
 					}
+					// 更新 JIT 活动时间
+					manager.updateModelActiveTime(modelName);
 					this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, "/v1/chat/completions", isStream, body);
 				} else {
+					// 模型未加载，检查是否启用 JIT 自动加载
+					if (LlamaServer.isJitEnabled()) {
+						boolean loaded = this.jitAutoLoadModel(ctx, request, modelName, requestJson, manager, body, isStream, "/v1/chat/completions");
+						if (loaded) {
+							return;
+						}
+					}
 					this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				}
 			}
@@ -1210,6 +1224,138 @@ public class OpenAIService {
 					e.printStackTrace();
 				}
 			}
+		}
+	}
+	
+	// ==================== JIT 自动加载方法 ====================
+	
+	/**
+	 * JIT 自动加载模型
+	 * @return true 表示成功加载并转发请求，false 表示失败
+	 */
+	@SuppressWarnings("unchecked")
+	private boolean jitAutoLoadModel(ChannelHandlerContext ctx, FullHttpRequest request, 
+			String modelName, JsonObject requestJson, LlamaServerManager manager,
+			String body, boolean isStream, String apiPath) {
+		try {
+			// 1. 查找模型配置
+			GGUFModel model = manager.findModelById(modelName);
+			if (model == null) {
+				// 尝试通过别名查找
+				String resolvedModelId = manager.findModelIdByAlias(modelName);
+				if (resolvedModelId != null) {
+					model = manager.findModelById(resolvedModelId);
+					modelName = resolvedModelId;
+				}
+			}
+			if (model == null) {
+				logger.info("JIT: 未找到模型 {}", modelName);
+				return false;
+			}
+			
+			// 2. 获取模型启动配置
+			ConfigManager configManager = ConfigManager.getInstance();
+			Map<String, Object> configBundle = configManager.getModelLaunchConfigBundle(modelName);
+			if (configBundle == null || configBundle.isEmpty()) {
+				logger.info("JIT: 模型 {} 没有启动配置", modelName);
+				return false;
+			}
+			
+			// 获取默认配置
+			String selectedConfig = (String) configBundle.getOrDefault("selectedConfig", "default");
+			Object configsObj = configBundle.get("configs");
+			if (configsObj == null || !(configsObj instanceof Map)) {
+				logger.info("JIT: 模型 {} 没有可用配置", modelName);
+				return false;
+			}
+			Map<String, Object> configs = (Map<String, Object>) configsObj;
+			Map<String, Object> selectedConfigData = (Map<String, Object>) configs.get(selectedConfig);
+			if (selectedConfigData == null) {
+				logger.info("JIT: 模型 {} 的配置 {} 不存在", modelName, selectedConfig);
+				return false;
+			}
+			
+			// 提取启动参数
+			String llamaBinPath = (String) selectedConfigData.get("llamaBinPathSelect");
+			if (llamaBinPath == null || llamaBinPath.trim().isEmpty()) {
+				llamaBinPath = (String) selectedConfigData.get("llamaBinPath");
+			}
+			List<String> device = (List<String>) selectedConfigData.get("device");
+			Integer mg = (Integer) selectedConfigData.get("mg");
+			Boolean enableVision = (Boolean) selectedConfigData.get("enableVision");
+			if (enableVision == null) {
+				enableVision = true;
+			}
+			String cmd = (String) selectedConfigData.get("cmd");
+			String extraParams = (String) selectedConfigData.get("extraParams");
+			String chatTemplateFilePath = null;
+			if (selectedConfigData.containsKey("chatTemplateFile")) {
+				chatTemplateFilePath = (String) selectedConfigData.get("chatTemplateFile");
+			}
+			
+			if (llamaBinPath == null || llamaBinPath.trim().isEmpty()) {
+				logger.info("JIT: 模型 {} 未配置 llamaBinPath", modelName);
+				return false;
+			}
+			
+			// 3. 检查并发数量限制
+			int maxModels = LlamaServer.getJitMaxLoadedModels();
+			int currentCount = manager.getLoadedModelCount();
+			
+			if (currentCount >= maxModels) {
+				// 已达上限，需要卸载一个模型
+				String strategy = LlamaServer.getJitLoadStrategy();
+				String evicted = manager.evictModel(strategy);
+				if (evicted == null) {
+					logger.info("JIT: 未能卸载模型，无法加载新模型");
+					if (LlamaServer.isJitAllowQueue()) {
+						// 暂时不支持排队，返回繁忙
+						this.sendOpenAIErrorResponseWithCleanup(ctx, 503, null, 
+							"Too many models loaded, please try again later", null);
+						return true;
+					}
+					return false;
+				}
+				logger.info("JIT: 已卸载模型 {}，准备加载 {}", evicted, modelName);
+			}
+			
+			// 4. 自动加载模型
+			logger.info("JIT: 开始自动加载模型 {}", modelName);
+			boolean started = manager.loadModelAsyncFromCmd(modelName, llamaBinPath, device, mg, 
+				enableVision, cmd, extraParams, chatTemplateFilePath);
+			if (!started) {
+				logger.info("JIT: 模型 {} 加载提交失败", modelName);
+				return false;
+			}
+			
+			// 5. 等待加载完成（最多等待 120 秒）
+			boolean loadSuccess = manager.waitForModelLoad(modelName, 120000);
+			if (!loadSuccess) {
+				logger.info("JIT: 模型 {} 加载超时", modelName);
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 504, null, 
+					"Model loading timeout: " + modelName, null);
+				return true;
+			}
+			
+			// 6. 获取端口并转发请求
+			Integer modelPort = manager.getModelPort(modelName);
+			if (modelPort == null) {
+				logger.info("JIT: 模型 {} 加载成功但无法获取端口", modelName);
+				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, 
+					"Model loaded but port not found: " + modelName, null);
+				return true;
+			}
+			
+			// 更新活动时间
+			manager.updateModelActiveTime(modelName);
+			
+			// 转发请求
+			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, apiPath, isStream, body);
+			return true;
+			
+		} catch (Exception e) {
+			logger.info("JIT 自动加载模型时发生错误: {}", e.getMessage(), e);
+			return false;
 		}
 	}
 }
