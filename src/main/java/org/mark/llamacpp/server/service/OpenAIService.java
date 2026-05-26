@@ -425,6 +425,14 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				// JIT 自动加载
+				if (LlamaServer.isJitEnabled()) {
+					String body = JsonUtil.toJson(requestJson);
+					boolean loaded = this.jitAutoLoadModel(ctx, request, modelName, requestJson, manager, body, isStream, "/v1/completions");
+					if (loaded) {
+						return;
+					}
+				}
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				return;
 			}
@@ -441,6 +449,8 @@ public class OpenAIService {
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
 				return;
 			}
+			// 更新 JIT 活动时间
+			manager.updateModelActiveTime(modelName);
 			// 转发请求到对应的llama.cpp进程
 			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, "/v1/completions", isStream, JsonUtil.toJson(requestJson));
 		} catch (Exception e) {
@@ -484,6 +494,13 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				// JIT 自动加载
+				if (LlamaServer.isJitEnabled()) {
+					boolean loaded = this.jitAutoLoadModel(ctx, request, modelName, requestJson, manager, content, false, "/v1/embeddings");
+					if (loaded) {
+						return;
+					}
+				}
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				return;
 			}
@@ -492,6 +509,8 @@ public class OpenAIService {
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
 				return;
 			}
+			// 更新 JIT 活动时间
+			manager.updateModelActiveTime(modelName);
 			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, "/v1/embeddings", false, request.content().toString(StandardCharsets.UTF_8));
 		} catch (Exception e) {
 			logger.info("处理OpenAI嵌入请求时发生错误", e);
@@ -534,6 +553,13 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				// JIT 自动加载
+				if (LlamaServer.isJitEnabled()) {
+					boolean loaded = this.jitAutoLoadModel(ctx, request, modelName, requestJson, manager, content, false, "/v1/rerank");
+					if (loaded) {
+						return;
+					}
+				}
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				return;
 			}
@@ -542,7 +568,8 @@ public class OpenAIService {
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
 				return;
 			}
-
+			// 更新 JIT 活动时间
+			manager.updateModelActiveTime(modelName);
 			String endpoint = request.uri();
 			if (endpoint != null && endpoint.startsWith("/rerank")) {
 				endpoint = "/v1" + endpoint;
@@ -600,6 +627,13 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				// JIT 自动加载
+				if (LlamaServer.isJitEnabled()) {
+					boolean loaded = this.jitAutoLoadModel(ctx, request, modelName, requestJson, manager, content, isStream, "/v1/responses");
+					if (loaded) {
+						return;
+					}
+				}
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				return;
 			}
@@ -608,7 +642,8 @@ public class OpenAIService {
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 500, null, "Model port not found: " + modelName, null);
 				return;
 			}
-
+			// 更新 JIT 活动时间
+			manager.updateModelActiveTime(modelName);
 			String endpoint = request.uri();
 			if (endpoint != null && endpoint.startsWith("/responses")) {
 				endpoint = "/v1" + endpoint;
@@ -720,6 +755,7 @@ public class OpenAIService {
 				}
 			}
 			if (!manager.getLoadedProcesses().containsKey(modelName)) {
+				// JIT 自动加载（音频转录场景下直接返回 404，不自动加载）
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 404, null, "Model not found: " + modelName, "model");
 				return;
 			}
