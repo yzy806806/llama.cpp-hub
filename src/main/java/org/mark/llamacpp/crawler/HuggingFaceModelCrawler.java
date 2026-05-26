@@ -23,8 +23,9 @@ import java.util.Set;
 
 
 /**
- * 	针对huggingface的爬虫。
+ * 	针对huggingface的爬虫。如果你看到这行字，应该知道这玩意已经被弃用了，再改写就不礼貌了。
  */
+@Deprecated
 public final class HuggingFaceModelCrawler {
 	
 	/**
