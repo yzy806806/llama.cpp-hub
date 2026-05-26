@@ -388,10 +388,10 @@
   },
   {
     "name": "param.server.checkpoint_every_nt.name",
-    "fullName": "--checkpoint-every-n-tokens",
-    "abbreviation": "-cpent",
+    "fullName": "--checkpoint-min-step",
+    "abbreviation": "--checkpoint-min-step",
     "type": "INTEGER",
-    "defaultValue": "-1",
+    "defaultValue": "256",
     "description": "param.server.checkpoint_every_nt.desc",
     "sort": 8.1,
     "defaultEnabled": false,
