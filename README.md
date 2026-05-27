@@ -1,8 +1,10 @@
-# llama.cpp-hub
+# llama.cpp-hub (JIT 分支)
 
-[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
+[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md) | **[JIT 功能说明](#jit-自动加载模型)**
 
-给 llama.cpp 套个 Web 壳 — 用图形化的Web页面来操作模型和llama.cpp。内置了很多花里胡哨的功能。
+> ⚠️ **本分支为 yzy806806 的功能增强分支**，基于主项目 [IIIIIllllIIIIIlllll/llama.cpp-hub](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub) 开发。
+>
+> 主要新增功能：**JIT 自动加载模型**，类似 LM Studio 的使用体验。
 
 ---
 
@@ -20,6 +22,47 @@
 - 可以配置多种不同版本的llama.cpp，选择指定版本加载模型
 - 设置聊天模板，自定义kwargs
 - 嵌入模型和重排序模型需在加载页面手动开启对应功能
+
+### ⚡ JIT 自动加载模型（本分支新增）
+
+类似 LM Studio 的 JIT 功能，**收到 API 请求时自动加载模型**，无需手动预先加载。
+
+**功能特点：**
+- 🤖 **自动加载** - 收到推理请求时自动加载模型，第一个请求会等待加载完成
+- ⏱️ **TTL 空闲超时** - 模型空闲一段时间后自动卸载，节省显存
+- 🔢 **并发限制** - 最多同时加载 N 个模型，防止显存爆满
+- 📋 **LRU/FIFO 卸载策略** - 达到上限时按策略卸载空闲模型
+
+**支持的 API 端点：**
+- `/v1/chat/completions` 
+- `/v1/completions`
+- `/v1/embeddings`
+- `/v1/rerank`
+- `/v1/responses`
+
+**配置项（`config/application.json`）：**
+```json
+{
+  "jit": {
+    "enabled": true,           // 开启 JIT 功能
+    "defaultTtl": 3600,        // 空闲超时（秒），默认 60 分钟
+    "maxLoadedModels": 2,      // 最多同时加载模型数
+    "loadStrategy": "lru",     // 卸载策略：lru / fifo
+    "allowQueue": true         // 是否允许排队等待
+  }
+}
+```
+
+**使用方式：**
+1. 在 WebUI 中配置好模型的启动参数，并**设置为默认配置**
+2. 发送 API 请求时指定模型名称
+3. 如果模型未加载，会自动使用默认配置加载
+4. 空闲超时后自动卸载
+
+**硬件建议：**
+- 双 3090（24GB x2）→ `maxLoadedModels` 设为 2
+
+> ⚠️ 注意：模型必须先在 WebUI 中配置好启动参数并设置为默认配置，JIT 才能自动加载。
 
 ### 便宜聊天
 
