@@ -524,10 +524,17 @@ public final class HuggingFaceSearcher {
     // ---------------------------------------------------------------------------
 
     private static HttpClient newHttpClient(int timeout) {
-        return HttpClient.newBuilder()
+        HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(timeout))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        
+        // 添加代理支持
+        java.net.Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+        if (proxy != null) {
+            builder.proxy(java.net.ProxySelector.of(proxy.address()));
+        }
+        
+        return builder.build();
     }
 
     private static HttpResponse<String> sendGet(HttpClient client, URI uri, int timeout)

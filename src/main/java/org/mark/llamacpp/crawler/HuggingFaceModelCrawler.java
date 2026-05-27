@@ -50,6 +50,23 @@ public final class HuggingFaceModelCrawler {
 
 	public record ModelSearchResult(String query, List<ModelSearchHit> hits) {
 	}
+	
+	/**
+	 * 创建支持代理的 HttpClient
+	 */
+	private static HttpClient createHttpClient(int timeoutSeconds) {
+		HttpClient.Builder builder = HttpClient.newBuilder()
+				.connectTimeout(Duration.ofSeconds(timeoutSeconds))
+				.followRedirects(HttpClient.Redirect.NORMAL);
+		
+		// 添加代理支持
+		java.net.Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+		if (proxy != null) {
+			builder.proxy(java.net.ProxySelector.of(proxy.address()));
+		}
+		
+		return builder.build();
+	}
 
 	public static GGUFCrawlResult crawlGGUFFiles(String modelUrlOrRepoId) throws IOException, InterruptedException {
 		return crawlGGUFFiles(modelUrlOrRepoId, 20);
@@ -175,8 +192,7 @@ public final class HuggingFaceModelCrawler {
 
 	private static JsonObject fetchModelInfo(String baseUrl, String repoId, int timeoutSeconds)
 			throws IOException, InterruptedException {
-		HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeoutSeconds))
-				.followRedirects(HttpClient.Redirect.NORMAL).build();
+		HttpClient client = createHttpClient(timeoutSeconds);
 
 		URI uri = URI.create(baseUrl + "/api/models/" + repoId);
 		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().uri(uri)
@@ -206,8 +222,7 @@ public final class HuggingFaceModelCrawler {
 
 	private static JsonArray fetchRepoTree(String baseUrl, String repoId, String revision, int timeoutSeconds)
 			throws IOException, InterruptedException {
-		HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeoutSeconds))
-				.followRedirects(HttpClient.Redirect.NORMAL).build();
+		HttpClient client = createHttpClient(timeoutSeconds);
 		URI uri = URI.create(baseUrl + "/api/models/" + repoId + "/tree/" + revision + "?recursive=1");
 		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder().uri(uri)
 				.timeout(Duration.ofSeconds(timeoutSeconds))
@@ -252,8 +267,7 @@ public final class HuggingFaceModelCrawler {
 
 	private static SearchApiPage fetchModelsSearchApiPage(String baseUrl, String query, String cursor, int limit,
 			int timeoutSeconds) throws IOException, InterruptedException {
-		HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(timeoutSeconds))
-				.followRedirects(HttpClient.Redirect.NORMAL).build();
+		HttpClient client = createHttpClient(timeoutSeconds);
 
 		String q = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
 		StringBuilder url = new StringBuilder();

@@ -586,7 +586,15 @@ public class LlamacppController implements BaseController {
 
 			String apiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
 			URL url = URI.create(apiUrl).toURL();
-			connection = (HttpURLConnection) url.openConnection();
+			
+			// 获取代理配置
+			java.net.Proxy javaProxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+			if (javaProxy != null) {
+				connection = (HttpURLConnection) url.openConnection(javaProxy);
+			} else {
+				connection = (HttpURLConnection) url.openConnection();
+			}
+			
 			connection.setRequestMethod("GET");
 			connection.setConnectTimeout(15000);
 			connection.setReadTimeout(30000);

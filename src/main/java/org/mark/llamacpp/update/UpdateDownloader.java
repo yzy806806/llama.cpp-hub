@@ -179,7 +179,16 @@ public class UpdateDownloader {
 
     private HttpURLConnection connect(String downloadUrl) throws IOException {
         URL url = URI.create(downloadUrl).toURL();
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        
+        // 获取代理配置
+        java.net.Proxy javaProxy = org.mark.llamacpp.server.LlamaServer.getProxy();
+        HttpURLConnection conn;
+        if (javaProxy != null) {
+            conn = (HttpURLConnection) url.openConnection(javaProxy);
+        } else {
+            conn = (HttpURLConnection) url.openConnection();
+        }
+        
         conn.setRequestProperty("User-Agent", "llama.cpp-hub-updater");
         conn.setRequestProperty("Accept", "*/*");
         conn.setConnectTimeout(30_000);

@@ -858,6 +858,17 @@ public class SystemController implements BaseController {
 			https.put("keystorePassword", LlamaServer.getHttpsPassword());
 			data.put("https", https);
 			
+			// 代理配置
+			Map<String, Object> proxy = new HashMap<>();
+			proxy.put("enabled", LlamaServer.isProxyEnabled());
+			proxy.put("type", LlamaServer.getProxyType());
+			proxy.put("host", LlamaServer.getProxyHost());
+			proxy.put("port", LlamaServer.getProxyPort());
+			proxy.put("username", LlamaServer.getProxyUsername());
+			// 密码不返回给前端
+			proxy.put("password", "");
+			data.put("proxy", proxy);
+			
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("获取系统设置时发生错误", e);
@@ -897,11 +908,21 @@ public class SystemController implements BaseController {
 			String httpsCertPath = JsonUtil.getJsonString(obj, "httpsCertPath", null);
 			String httpsPassword = JsonUtil.getJsonString(obj, "httpsPassword", null);
 			String downloadDirectory = JsonUtil.getJsonString(obj, "downloadDirectory", null);
+			
+			// 代理配置参数
+			Boolean proxyEnabled = firstBoolean(obj, "proxyEnabled", "proxy_enabled");
+			String proxyType = JsonUtil.getJsonString(obj, "proxyType", "proxy_type", "type");
+			String proxyHost = JsonUtil.getJsonString(obj, "proxyHost", "proxy_host", "host");
+			Integer proxyPort = firstPort(obj, "proxyPort", "proxy_port", "port");
+			String proxyUsername = JsonUtil.getJsonString(obj, "proxyUsername", "proxy_username", "username");
+			String proxyPassword = JsonUtil.getJsonString(obj, "proxyPassword", "proxy_password", "password");
 
 			if (ollamaPort == null && lmstudioPort == null && logRequestUrl == null && logRequestHeader == null && logRequestBody == null
 				&& webPort == null && anthropicPort == null && apiKeyEnabled == null && apiKey == null
 				&& httpsEnabled == null && httpsCertPath == null && httpsPassword == null
-				&& downloadDirectory == null) {
+				&& downloadDirectory == null
+				&& proxyEnabled == null && proxyType == null && proxyHost == null && proxyPort == null
+				&& proxyUsername == null && proxyPassword == null) {
 				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("缺少可保存参数"));
 				return;
 			}
@@ -944,6 +965,19 @@ public class SystemController implements BaseController {
 			
 			if (httpsEnabled != null || httpsCertPath != null || httpsPassword != null) {
 				LlamaServer.updateHttpsConfig(httpsEnabled, httpsCertPath, null, httpsPassword);
+			}
+			
+			// 保存代理配置
+			if (proxyEnabled != null || proxyType != null || proxyHost != null || proxyPort != null
+				|| proxyUsername != null || proxyPassword != null) {
+				LlamaServer.updateProxyConfig(
+					proxyEnabled,
+					proxyType,
+					proxyHost,
+					proxyPort,
+					proxyUsername,
+					proxyPassword
+				);
 			}
 			
 			if (downloadDirectory != null && !downloadDirectory.isEmpty()) {
