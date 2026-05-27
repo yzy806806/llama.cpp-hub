@@ -30,7 +30,7 @@
 添加了 HTTP 代理支持，解决国内用户访问 HuggingFace 模型仓库和 GitHub 更新时的网络问题。
 
 **支持的功能：**
-- 模型下载代理
+- 模型下载代理（HTTP/HTTPS）
 - HuggingFace 模型搜索代理
 - GitHub 更新检查代理
 - llama.cpp 更新下载代理
@@ -92,7 +92,6 @@
 
 ## 反馈与交流
 
-- QQ 群：829631748（入群答案：防爆键盘）
 - GitHub Issues：https://github.com/yzy806806/llama.cpp-hub/issues
 
 ---
