@@ -3,7 +3,10 @@ package org.mark.llamacpp.crawler;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.Authenticator;
 import java.net.HttpURLConnection;
+import java.net.PasswordAuthentication;
+import java.net.Proxy;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.Charset;
@@ -28,6 +31,7 @@ import java.util.Map;
  *   <li>Optional status-code validation</li>
  * </ul>
  */
+@Deprecated
 public final class HttpUtils {
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(10);
@@ -108,6 +112,8 @@ public final class HttpUtils {
         private boolean followRedirects = true;
         private boolean validateStatus = true;
         private int expectedStatus;
+        private ProxyConfig proxyConfig;
+        private Authenticator savedAuthenticator;
 
         Request(String url) {
             this.url = url;
@@ -227,6 +233,14 @@ public final class HttpUtils {
         }
 
         /**
+         * Sets the proxy configuration for this request.
+         */
+        public Request proxy(ProxyConfig proxyConfig) {
+            this.proxyConfig = proxyConfig;
+            return this;
+        }
+
+        /**
          * Executes the request and returns the response.
          *
          * @throws IOException if the request fails or status validation fails
@@ -289,12 +303,45 @@ public final class HttpUtils {
                 return new Response(statusCode, respBody, respHeaders);
             } finally {
                 conn.disconnect();
+                restoreProxyAuth();
+            }
+        }
+
+        private void setupProxyAuth(ProxyConfig config) {
+            savedAuthenticator = Authenticator.getDefault();
+            final String user = config.getUsername();
+            final String pass = config.getPassword();
+            Authenticator.setDefault(new Authenticator() {
+                @Override
+                protected PasswordAuthentication getPasswordAuthentication() {
+                	System.err.println("1");
+                    return new PasswordAuthentication(user, pass.toCharArray());
+                }
+            });
+        }
+
+        private void restoreProxyAuth() {
+            if (savedAuthenticator != null) {
+                Authenticator.setDefault(savedAuthenticator);
+                savedAuthenticator = null;
             }
         }
 
         private HttpURLConnection openConnection() throws IOException {
             URL urlObj = URI.create(url).toURL();
-            HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
+            HttpURLConnection conn;
+
+            if (proxyConfig != null) {
+                Proxy proxy = proxyConfig.toProxy();
+                conn = (HttpURLConnection) urlObj.openConnection(proxy);
+
+                if (proxyConfig.hasAuth()) {
+                    setupProxyAuth(proxyConfig);
+                }
+            } else {
+                conn = (HttpURLConnection) urlObj.openConnection();
+            }
+
             conn.setConnectTimeout((int) connectTimeout.toMillis());
             conn.setReadTimeout((int) readTimeout.toMillis());
             conn.setInstanceFollowRedirects(followRedirects);
