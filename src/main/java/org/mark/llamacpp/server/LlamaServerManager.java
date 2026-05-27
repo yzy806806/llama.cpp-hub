@@ -1114,6 +1114,8 @@ public class LlamaServerManager {
 					this.modelPorts.remove(id);
 				}
 				this.loadedModelInfos.remove(id);
+				// 清理 JIT 活动记录
+				this.modelLastActiveTime.remove(id);
 			}
 			return stopped;
 		}
