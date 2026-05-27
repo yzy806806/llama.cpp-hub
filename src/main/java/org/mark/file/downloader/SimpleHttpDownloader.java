@@ -238,12 +238,12 @@ public class SimpleHttpDownloader {
 		
 		// 获取代理配置
 		Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-		Authenticator oldAuthenticator = null;
+		Authenticator oldAuthenticator = Authenticator.getDefault();
 		
 		// 设置代理认证
 		Authenticator proxyAuth = org.mark.llamacpp.server.LlamaServer.getProxyAuthenticator();
 		if (proxyAuth != null) {
-			oldAuthenticator = Authenticator.setDefault(proxyAuth);
+			Authenticator.setDefault(proxyAuth);
 		}
 		
 		HttpURLConnection connection;

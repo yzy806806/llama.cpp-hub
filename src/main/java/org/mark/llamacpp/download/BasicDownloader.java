@@ -108,8 +108,8 @@ public class BasicDownloader {
 		
 		// 添加代理支持
 		java.net.Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-		if (proxy != null) {
-			builder.proxy(java.net.ProxySelector.of(proxy.address()));
+		if (proxy != null && proxy.address() instanceof java.net.InetSocketAddress) {
+			builder.proxy(java.net.ProxySelector.of((java.net.InetSocketAddress) proxy.address()));
 		}
 		
 		this.httpClient = builder.build();
