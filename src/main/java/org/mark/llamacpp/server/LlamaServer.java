@@ -538,7 +538,6 @@ public class LlamaServer {
 				}
 			}
 		}
-	}
 		
 		if (root.has("logging")) {
 			JsonObject logging = root.getAsJsonObject("logging");
