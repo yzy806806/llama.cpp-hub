@@ -4,9 +4,10 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -25,7 +26,9 @@ import com.google.gson.JsonObject;
  */
 public class ParamTool {
 	
-	private static final SimpleDateFormat SDF = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH);
+	private static final DateTimeFormatter DTF = DateTimeFormatter
+			.ofPattern("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
+			.withZone(ZoneId.of("GMT"));
 	
 	
 	//private static final Pattern CTX_SIZE = Pattern.compile("(?:(?:--ctx-size)|(?:-c))\\s+(\\d+)");
@@ -86,7 +89,7 @@ public class ParamTool {
 	 * @return
 	 */
 	public static String getDate() {
-		return SDF.format(new Date());
+		return DTF.format(Instant.now());
 	}
 	
 	
