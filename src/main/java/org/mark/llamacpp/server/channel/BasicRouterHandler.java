@@ -13,6 +13,7 @@ import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.controller.BaseController;
 import org.mark.llamacpp.server.controller.EasyChatController;
 import org.mark.llamacpp.server.controller.HuggingFaceController;
+import org.mark.llamacpp.server.controller.JitConfigController;
 import org.mark.llamacpp.server.controller.LlamacppController;
 import org.mark.llamacpp.server.controller.ModelActionController;
 import org.mark.llamacpp.server.controller.ModelInfoController;
@@ -59,6 +60,7 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		pipeline.add(new NodeController());
 		pipeline.add(new ParamController());
 		pipeline.add(new ToolController());
+		pipeline.add(new JitConfigController());
 		pipeline.add(new SystemController());
 		pipeline.add(new UsageReportController());
 	}

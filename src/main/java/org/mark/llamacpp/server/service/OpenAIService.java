@@ -1274,6 +1274,16 @@ public class OpenAIService {
 			String modelName, JsonObject requestJson, LlamaServerManager manager,
 			String body, boolean isStream, String apiPath) {
 		try {
+			// 0. 从请求体解析请求级 TTL（可选，覆盖全局 defaultTtl）
+			int requestTtl = 0;
+			if (requestJson != null && requestJson.has("ttl")) {
+				try {
+					requestTtl = requestJson.get("ttl").getAsInt();
+				} catch (Exception ignored) {
+					// ttl 格式不合法，忽略，使用全局默认值
+				}
+			}
+			
 			// 1. 查找模型配置
 			GGUFModel model = manager.findModelById(modelName);
 			if (model == null) {
@@ -1382,8 +1392,8 @@ public class OpenAIService {
 				return true;
 			}
 			
-			// 更新活动时间
-			manager.updateModelActiveTime(modelName);
+			// 更新活动时间（带请求级 TTL 覆盖）
+			manager.updateModelActiveTime(modelName, requestTtl);
 			
 			// 转发请求
 			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, apiPath, isStream, body);

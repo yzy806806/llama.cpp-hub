@@ -294,6 +294,7 @@
             populate(result.data);
         } catch (e) {
         }
+        loadJitSettings();
     }
 
     let _populating = false;
@@ -496,6 +497,74 @@
             }
             toast(t('toast.success', '成功'), t('common.saved', '已保存'), 'success');
             loadSettings();
+        } catch (e) {
+            toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        }
+    }
+
+    // ============ JIT 配置 ============
+
+    async function loadJitSettings() {
+        try {
+            const resp = await fetch('/api/config/jit', { method: 'GET' });
+            const result = await resp.json();
+            if (!result || !result.success || !result.data) return;
+            const d = result.data;
+            const toggle = byId('toggleJitEnabled');
+            if (toggle) toggle.checked = !!d.enabled;
+            const ttlInput = byId('jitDefaultTtlInput');
+            if (ttlInput) ttlInput.value = d.defaultTtl;
+            const maxInput = byId('jitMaxLoadedModelsInput');
+            if (maxInput) maxInput.value = d.maxLoadedModels;
+            const strategySelect = byId('jitLoadStrategySelect');
+            if (strategySelect && d.loadStrategy) strategySelect.value = d.loadStrategy;
+            const queueToggle = byId('toggleJitAllowQueue');
+            if (queueToggle) queueToggle.checked = !!d.allowQueue;
+        } catch (e) {
+            // silent
+        }
+    }
+
+    async function saveJitSettings() {
+        const toggle = byId('toggleJitEnabled');
+        const ttlInput = byId('jitDefaultTtlInput');
+        const maxInput = byId('jitMaxLoadedModelsInput');
+        const strategySelect = byId('jitLoadStrategySelect');
+        const queueToggle = byId('toggleJitAllowQueue');
+
+        const enabled = toggle ? toggle.checked : true;
+        const defaultTtl = ttlInput ? parseInt(ttlInput.value, 10) : 3600;
+        const maxLoadedModels = maxInput ? parseInt(maxInput.value, 10) : 2;
+        const loadStrategy = strategySelect ? strategySelect.value : 'lru';
+        const allowQueue = queueToggle ? queueToggle.checked : true;
+
+        if (isNaN(defaultTtl) || defaultTtl < 0) {
+            toast(t('toast.error', '错误'), t('page.settings.jit.error.invalid_ttl', 'TTL 不能为负数'), 'error');
+            return;
+        }
+        if (isNaN(maxLoadedModels) || maxLoadedModels < 1) {
+            toast(t('toast.error', '错误'), t('page.settings.jit.error.invalid_max_models', '最大加载模型数不能小于 1'), 'error');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/api/config/jit', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: enabled,
+                    defaultTtl: defaultTtl,
+                    maxLoadedModels: maxLoadedModels,
+                    loadStrategy: loadStrategy,
+                    allowQueue: allowQueue
+                })
+            });
+            const data = await resp.json();
+            if (!data || !data.success) {
+                toast(t('toast.error', '错误'), (data && data.error) ? data.error : t('common.save_failed', '保存失败'), 'error');
+                return;
+            }
+            toast(t('toast.success', '成功'), t('toast.saved', '已保存'), 'success');
         } catch (e) {
             toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
         }
@@ -1916,6 +1985,10 @@
         const saveProxyBtn = byId('saveProxyBtn');
         if (saveProxyBtn) saveProxyBtn.addEventListener('click', saveProxy);
 
+        // JIT tab
+        const saveJitBtn = byId('saveJitBtn');
+        if (saveJitBtn) saveJitBtn.addEventListener('click', saveJitSettings);
+
         // Nodes tab
         const nodesTab = document.querySelector('.settings-tab[data-tab="nodes"]');
         if (nodesTab) nodesTab.addEventListener('click', loadNodes);
@@ -1954,7 +2027,7 @@
     window.applyUpdate = applyUpdate;
     window.cancelUpdateDownload = cancelUpdateDownload;
     window.onAppUpdateEvent = handleAppUpdateEvent;
-    window.SettingsPage = { init, load, switchTab, switchUpdateSubTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode, loadLlamaCppReleases, downloadLlamaCppAsset, onLlamaCppDownloadProgress, saveProxy };
+    window.SettingsPage = { init, load, switchTab, switchUpdateSubTab, openNodeForm, saveNodeForm, editNode, removeNode, testNode, toggleNode, loadLlamaCppReleases, downloadLlamaCppAsset, onLlamaCppDownloadProgress, saveProxy, saveJitSettings, loadJitSettings };
     window.loadLlamaCppList = loadLlamaCppList;
     window.addLlamaCpp = addLlamaCpp;
     window.editLlamaCpp = editLlamaCpp;

@@ -979,6 +979,30 @@ public static boolean isMcpServerRunning() {
      	return jitAllowQueue;
      }
      
+     /**
+      * 更新 JIT 配置并持久化到 application.json
+      */
+     public static void updateJitConfig(Boolean enabled, Integer defaultTtl, Integer maxLoadedModels, String loadStrategy, Boolean allowQueue) {
+     	synchronized (APPLICATION_CONFIG_LOCK) {
+     		if (enabled != null) {
+     			jitEnabled = enabled;
+     		}
+     		if (defaultTtl != null) {
+     			jitDefaultTtl = defaultTtl;
+     		}
+     		if (maxLoadedModels != null) {
+     			jitMaxLoadedModels = maxLoadedModels;
+     		}
+     		if (loadStrategy != null) {
+     			jitLoadStrategy = loadStrategy;
+     		}
+     		if (allowQueue != null) {
+     			jitAllowQueue = allowQueue;
+     		}
+     		saveApplicationConfig();
+     	}
+     }
+     
      public static SslContext getHttpsSslContext() {
      	return httpsSslContext;
      }

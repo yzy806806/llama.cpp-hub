@@ -140,6 +140,11 @@ public class LlamaServerManager {
 	private final Map<String, Long> modelLastActiveTime = new ConcurrentHashMap<>();
 	
 	/**
+	 * 模型自定义 TTL（秒），请求级覆盖。没有自定义 TTL 时使用全局 defaultTtl。
+	 */
+	private final Map<String, Integer> modelCustomTtl = new ConcurrentHashMap<>();
+	
+	/**
 	 * TTL 定时检查调度器
 	 */
 	private ScheduledExecutorService ttlScheduler;
@@ -921,8 +926,22 @@ public class LlamaServerManager {
 	 * @param modelId 模型ID
 	 */
 	public void updateModelActiveTime(String modelId) {
+		updateModelActiveTime(modelId, 0);
+	}
+	
+	/**
+	 * 更新模型的最后活动时间，并设置自定义 TTL
+	 * @param modelId 模型ID
+	 * @param customTtlSeconds 自定义 TTL（秒），<=0 表示使用全局默认值
+	 */
+	public void updateModelActiveTime(String modelId, int customTtlSeconds) {
 		if (modelId != null && !modelId.trim().isEmpty()) {
 			modelLastActiveTime.put(modelId, System.currentTimeMillis());
+			if (customTtlSeconds > 0) {
+				modelCustomTtl.put(modelId, customTtlSeconds);
+			} else {
+				modelCustomTtl.remove(modelId);
+			}
 			// 确保 JIT 调度器已启动
 			startJitScheduler();
 		}
@@ -962,7 +981,6 @@ public class LlamaServerManager {
 			return;
 		}
 		long now = System.currentTimeMillis();
-		long ttlMillis = defaultTtl * 1000L;
 		
 		List<String> modelsToEvict = new ArrayList<>();
 		synchronized (this.processLock) {
@@ -973,6 +991,9 @@ public class LlamaServerManager {
 				if (loadingProcesses.containsKey(modelId) || loadingModels.contains(modelId)) {
 					continue;
 				}
+				// 使用模型自定义 TTL（如果有），否则用全局默认值
+				Integer customTtl = modelCustomTtl.get(modelId);
+				long ttlMillis = (customTtl != null && customTtl > 0 ? customTtl : defaultTtl) * 1000L;
 				if (now - lastActive > ttlMillis) {
 					modelsToEvict.add(modelId);
 				}
@@ -983,6 +1004,7 @@ public class LlamaServerManager {
 			logger.info("JIT: 模型 {} 空闲超时，准备卸载", modelId);
 			stopModel(modelId);
 			modelLastActiveTime.remove(modelId);
+			modelCustomTtl.remove(modelId);
 		}
 	}
 	
@@ -1019,6 +1041,7 @@ public class LlamaServerManager {
 			logger.info("JIT: 策略 {} 选中模型 {} 进行卸载", strategy, modelToEvict);
 			stopModel(modelToEvict);
 			modelLastActiveTime.remove(modelToEvict);
+			modelCustomTtl.remove(modelToEvict);
 		}
 		return modelToEvict;
 	}
@@ -1116,6 +1139,7 @@ public class LlamaServerManager {
 				this.loadedModelInfos.remove(id);
 				// 清理 JIT 活动记录
 				this.modelLastActiveTime.remove(id);
+				this.modelCustomTtl.remove(id);
 			}
 			return stopped;
 		}

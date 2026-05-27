@@ -654,6 +654,9 @@
                     <button class="settings-tab" data-tab="proxy">
                         <i class="fas fa-proxy"></i> <span data-i18n="page.settings.tab.proxy">代理</span>
                     </button>
+                    <button class="settings-tab" data-tab="jit">
+                        <i class="fas fa-bolt"></i> <span data-i18n="page.settings.tab.jit">JIT</span>
+                    </button>
                     <button class="settings-tab" data-tab="update">
                         <i class="fas fa-sync-alt"></i> <span data-i18n="page.settings.tab.update">版本更新</span>
                     </button>
@@ -1063,6 +1066,75 @@
                                 
                                 <div style="margin-top:1rem;">
                                     <button class="btn btn-primary" id="saveProxyBtn">
+                                        <i class="fas fa-save"></i> <span data-i18n="common.save">保存</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab: JIT -->
+                    <div class="settings-tab-panel" data-tab-panel="jit">
+                        <div class="settings-panel">
+                            <div class="settings-panel-body">
+                                <div class="settings-hint" data-i18n="page.settings.jit.hint">page.settings.jit.hint</div>
+
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-power-off"></i><span data-i18n="page.settings.jit.enable">page.settings.jit.enable</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="toggleJitEnabled">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-clock"></i><span data-i18n="page.settings.jit.default_ttl">page.settings.jit.default_ttl</span>
+                                        </div>
+                                        <input type="number" id="jitDefaultTtlInput" class="form-control" placeholder="3600" min="0" style="width:100%;">
+                                    </div>
+                                </div>
+
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-layer-group"></i><span data-i18n="page.settings.jit.max_loaded_models">page.settings.jit.max_loaded_models</span>
+                                        </div>
+                                        <input type="number" id="jitMaxLoadedModelsInput" class="form-control" placeholder="2" min="1" style="width:100%;">
+                                    </div>
+                                </div>
+
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row" style="flex-direction:column; align-items:flex-start;">
+                                        <div class="settings-toggle-title" style="margin-bottom:0.5rem;">
+                                            <i class="fas fa-sort-amount-down"></i><span data-i18n="page.settings.jit.load_strategy">page.settings.jit.load_strategy</span>
+                                        </div>
+                                        <select id="jitLoadStrategySelect" class="form-control" style="width:100%;">
+                                            <option value="lru">LRU</option>
+                                            <option value="fifo">FIFO</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="settings-toggle-list">
+                                    <div class="settings-toggle-row">
+                                        <div class="settings-toggle-title">
+                                            <i class="fas fa-tasks"></i><span data-i18n="page.settings.jit.allow_queue">page.settings.jit.allow_queue</span>
+                                        </div>
+                                        <label class="toggle-switch">
+                                            <input type="checkbox" id="toggleJitAllowQueue">
+                                            <span class="toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div style="margin-top:1rem;">
+                                    <button class="btn btn-primary" id="saveJitBtn">
                                         <i class="fas fa-save"></i> <span data-i18n="common.save">保存</span>
                                     </button>
                                 </div>
