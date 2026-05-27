@@ -1893,11 +1893,37 @@ pre:has(code[data-lang]) .code-copy-btn {
 }
 
 .mcp-template-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
-}
+   display: flex;
+   align-items: center;
+   justify-content: space-between;
+   gap: 10px;
+ }
+ 
+ .mcp-template-actions-right {
+   display: flex;
+   flex-wrap: wrap;
+   justify-content: flex-end;
+   gap: 10px;
+ }
+ 
+ .mcp-help-circle-btn {
+   width: 28px;
+   height: 28px;
+   min-width: 28px;
+   min-height: 28px;
+   border-radius: 50%;
+   display: inline-flex;
+   align-items: center;
+   justify-content: center;
+   font-size: 14px;
+   font-weight: 600;
+   line-height: 1;
+   padding: 0;
+ }
+ 
+ .mcp-help-dialog {
+   width: min(420px, calc(100vw - 48px));
+ }
 
 .mcp-json-input {
   width: 100%;

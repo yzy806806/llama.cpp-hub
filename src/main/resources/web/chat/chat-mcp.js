@@ -790,6 +790,46 @@
       }
     }
 
+    function addDefaultLocalMcp() {
+      if (!els.mcpJsonInput || !els.mcpServerNameInput) {
+        return;
+      }
+      var defaultConfig = {
+        transport: 'streamable_http',
+        url: 'http://localhost:8075/mcp/llama_hub_info',
+        headers: {},
+        timeout: 5,
+        sse_read_timeout: 300
+      };
+      els.mcpServerNameInput.value = '本地MCP服务(llama_hub_info)';
+      els.mcpJsonInput.value = JSON.stringify(defaultConfig, null, 2);
+      addServerFromDialog().catch(function (error) {
+        showToast('error', error && error.message ? error.message : window.I18N.t('page.chat.main.mcp.error.connect_failed', '连接 MCP 服务失败'));
+      });
+    }
+
+    function openHelpDialog() {
+      if (!els.mcpHelpDialog) {
+        return;
+      }
+      els.mcpHelpDialog.classList.add('open');
+      els.mcpHelpDialog.setAttribute('aria-hidden', 'false');
+      if (document.body) {
+        document.body.classList.add('mcp-dialog-open');
+      }
+    }
+
+    function closeHelpDialog() {
+      if (!els.mcpHelpDialog) {
+        return;
+      }
+      els.mcpHelpDialog.classList.remove('open');
+      els.mcpHelpDialog.setAttribute('aria-hidden', 'true');
+      if (document.body) {
+        document.body.classList.remove('mcp-dialog-open');
+      }
+    }
+
     async function addServerFromDialog() {
       const config = parseJsonServerConfig(els.mcpJsonInput ? els.mcpJsonInput.value : '');
       const name = els.mcpServerNameInput ? els.mcpServerNameInput.value.trim() : '';
@@ -874,6 +914,33 @@
       if (els.mcpUseSseTemplateBtn) {
         els.mcpUseSseTemplateBtn.addEventListener('click', function () {
           setDialogTemplate('sse');
+        });
+      }
+      if (els.mcpAddDefaultMcpBtn) {
+        els.mcpAddDefaultMcpBtn.addEventListener('click', function () {
+          addDefaultLocalMcp();
+        });
+      }
+      if (els.mcpDefaultHelpBtn) {
+        els.mcpDefaultHelpBtn.addEventListener('click', function () {
+          openHelpDialog();
+        });
+      }
+      if (els.mcpHelpCloseBtn) {
+        els.mcpHelpCloseBtn.addEventListener('click', function () {
+          closeHelpDialog();
+        });
+      }
+      if (els.mcpHelpOkBtn) {
+        els.mcpHelpOkBtn.addEventListener('click', function () {
+          closeHelpDialog();
+        });
+      }
+      if (els.mcpHelpDialog) {
+        els.mcpHelpDialog.addEventListener('click', function (event) {
+          if (event.target === els.mcpHelpDialog) {
+            closeHelpDialog();
+          }
         });
       }
       if (els.mcpDialogSaveBtn) {
