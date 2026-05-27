@@ -40,9 +40,8 @@ public class DownloadWebSocketListener implements DownloadProgressListener {
 				task.getSourceUrl(),
 				resolveParentPath(task));
 	}
-
+	
 	@Override
-	@SuppressWarnings("deprecation")
 	@Deprecated
 	public void onTaskCompleted(DownloadTaskInfo task) {
 		this.webSocketManager.sendDownloadStatusEvent(

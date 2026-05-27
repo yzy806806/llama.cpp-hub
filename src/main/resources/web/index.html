@@ -1731,7 +1731,7 @@
                             
                             <div class="form-group" id="mainGpuGroup">
                                 <label class="form-label" for="mainGpuSelect" data-i18n="modal.model_action.main_gpu">modal.model_action.main_gpu</label>
-                                <small class="form-text" id="ctxSizeVramHint" style="color: red; font-weight: 500; white-space: pre-wrap; display: block; margin-top: 8px;"></small>
+                                <small class="form-text" id="ctxSizeVramHint" style="color: red; font-weight: 500; white-space: pre-wrap; display: block; margin-top: 8px;"><i class="fas fa-question-circle param-desc-trigger" style="color: #DCDCDC; cursor: pointer; margin-left: 4px;" data-i18n="modal.model_action.vram_hint_title" data-i18n-attr="title" title="显存估算说明" data-param-name="modal.model_action.vram_hint_title" data-param-flag="" data-param-desc="modal.model_action.vram_hint_desc"></i></small>
                                 <select class="form-control" id="mainGpuSelect" name="mg">
                                     <option value="-1" data-i18n="common.default">common.default</option>
                                 </select>
@@ -3193,7 +3193,11 @@
         document.addEventListener('click', function(e) {
             var t = e.target;
             if (t && t.classList && t.classList.contains('param-desc-trigger')) {
-                openParamDescModal(t.getAttribute('data-param-name') || '', t.getAttribute('data-param-flag') || '', t.getAttribute('data-param-desc') || '');
+                var _i18nT = (window.I18N && window.I18N.t) || function(k, f) { return f || k; };
+                var _pn = t.getAttribute('data-param-name') || '';
+                var _pf = t.getAttribute('data-param-flag') || '';
+                var _pd = t.getAttribute('data-param-desc') || '';
+                openParamDescModal(_i18nT(_pn, _pn), _i18nT(_pf, _pf), _i18nT(_pd, _pd));
                 e.preventDefault();
                 e.stopPropagation();
             }

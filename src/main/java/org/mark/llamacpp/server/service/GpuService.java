@@ -15,7 +15,6 @@ public class GpuService {
     private static final Logger logger = LoggerFactory.getLogger(GpuService.class);
     private static final GpuService INSTANCE = new GpuService();
 
-    private final String os;
     private final String osType;
 
     private final boolean nvidiaSmiAvailable;
@@ -30,7 +29,6 @@ public class GpuService {
 
     private GpuService() {
         String osName = System.getProperty("os.name").toLowerCase();
-        this.os = osName;
         this.osType = osName.contains("win") ? "windows" :
                        osName.contains("mac") ? "mac" : "linux";
 

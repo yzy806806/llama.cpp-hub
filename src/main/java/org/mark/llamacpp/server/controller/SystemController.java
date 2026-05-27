@@ -135,11 +135,6 @@ public class SystemController implements BaseController {
 			this.handleSysSettingRequest(ctx, request);
 			return true;
 		}
-		// 保存搜索设置
-		if (uri.startsWith("/api/search/setting")) {
-			this.handleSearchSettingRequest(ctx, request);
-			return true;
-		}
 		// 获取指定模型的采样配置
 		if (uri.startsWith("/api/sys/model/sampling/setting/get")) {
 			this.handleModelSamplingSettingGetRequest(ctx, request);
@@ -1002,57 +997,6 @@ public class SystemController implements BaseController {
 		}
 	}
 
-	/**
-	 * 	保存搜索设置
-	 * @param ctx
-	 * @param request
-	 * @throws RequestMethodException
-	 */
-	private void handleSearchSettingRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
-		if (request.method() == HttpMethod.OPTIONS) {
-			LlamaServer.sendCorsResponse(ctx);
-			return;
-		}
-		this.assertRequestMethod(request.method() != HttpMethod.POST, "只支持POST请求");
-		try {
-			String content = request.content().toString(CharsetUtil.UTF_8);
-			if (content == null || content.trim().isEmpty()) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体为空"));
-				return;
-			}
-			JsonObject obj = JsonUtil.fromJson(content, JsonObject.class);
-			if (obj == null) {
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求体解析失败"));
-				return;
-			}
-
-			String apiKey = JsonUtil.getJsonString(obj, "zhipu_search_apikey", null);
-			if (apiKey == null) {
-				apiKey = JsonUtil.getJsonString(obj, "apiKey", null);
-			}
-			apiKey = apiKey == null ? "" : apiKey.trim();
-
-			JsonObject out = new JsonObject();
-			out.addProperty("apiKey", apiKey);
-			String json = JsonUtil.toJson(out);
-
-			Path configPath = Paths.get("config", "zhipu_search.json");
-			if (!Files.exists(configPath.getParent())) {
-				Files.createDirectories(configPath.getParent());
-			}
-			Files.write(configPath, json.getBytes(StandardCharsets.UTF_8));
-
-			Map<String, Object> data = new HashMap<>();
-			data.put("saved", true);
-			data.put("file", configPath.toString());
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-		} catch (Exception e) {
-			logger.info("处理搜索设置请求时发生错误", e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("保存搜索设置失败: " + e.getMessage()));
-		}
-	}
-	
-	
 	private void handleModelSamplingSettingRequest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		if (request.method() == HttpMethod.OPTIONS) {
 			LlamaServer.sendCorsResponse(ctx);

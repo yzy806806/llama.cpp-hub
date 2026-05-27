@@ -384,14 +384,32 @@
           <input id="mcpServerNameInput" class="drawer-input" type="text" placeholder="例如：Weather Service" data-i18n-attr="placeholder" data-i18n="page.chat.main.mcp_dialog.name_placeholder">
         </div>
         <div class="mcp-template-actions">
-          <button id="mcpUseStreamableTemplateBtn" class="ghost-button" type="button" data-i18n="page.chat.main.mcp_dialog.streamable_template">Streamable HTTP 模板</button>
-          <button id="mcpUseSseTemplateBtn" class="ghost-button" type="button" data-i18n="page.chat.main.mcp_dialog.sse_template">SSE 模板</button>
+          <button id="mcpDefaultHelpBtn" class="icon-button mcp-help-circle-btn" type="button" aria-label="帮助" title="帮助" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.mcp_dialog.help_button">?</button>
+          <div class="mcp-template-actions-right">
+            <button id="mcpAddDefaultMcpBtn" class="ghost-button primary" type="button" data-i18n="page.chat.main.mcp_dialog.add_default">添加默认MCP服务</button>
+            <button id="mcpUseStreamableTemplateBtn" class="ghost-button" type="button" data-i18n="page.chat.main.mcp_dialog.streamable_template">Streamable HTTP 模板</button>
+            <button id="mcpUseSseTemplateBtn" class="ghost-button" type="button" data-i18n="page.chat.main.mcp_dialog.sse_template">SSE 模板</button>
+          </div>
         </div>
         <textarea id="mcpJsonInput" class="drawer-textarea mcp-json-input" spellcheck="false" aria-label="MCP JSON 配置" data-i18n-attr="aria-label" data-i18n="page.chat.main.mcp_dialog.json_aria"></textarea>
       </div>
       <div class="mcp-dialog-footer">
         <button id="mcpDialogCancelBtn" class="ghost-button" type="button" data-i18n="page.chat.main.mcp_dialog.cancel">取消</button>
         <button id="mcpDialogSaveBtn" class="primary-button" type="button" data-i18n="page.chat.main.mcp_dialog.save_connect">保存并连接</button>
+      </div>
+    </div>
+  </div>
+  <div id="mcpHelpDialog" class="mcp-dialog-backdrop" aria-hidden="true">
+    <div class="mcp-dialog mcp-help-dialog" role="dialog" aria-modal="true" aria-labelledby="mcpHelpDialogTitle">
+      <div class="mcp-dialog-head">
+        <h4 id="mcpHelpDialogTitle" data-i18n="page.chat.main.mcp_dialog.help_title">提示</h4>
+        <button id="mcpHelpCloseBtn" class="icon-button mcp-dialog-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="mcp-dialog-body">
+        <p data-i18n="page.chat.main.mcp_dialog.help_content">需要开启MCP服务，在设置->服务器 中启用才可以哦！</p>
+      </div>
+      <div class="mcp-dialog-footer">
+        <button id="mcpHelpOkBtn" class="primary-button" type="button" data-i18n="page.chat.main.mcp_dialog.help_ok">知道了</button>
       </div>
     </div>
   </div>
@@ -552,9 +570,14 @@
       mcpDialogCloseBtn: document.getElementById('mcpDialogCloseBtn'),
       mcpDialogCancelBtn: document.getElementById('mcpDialogCancelBtn'),
        mcpDialogSaveBtn: document.getElementById('mcpDialogSaveBtn'),
-       mcpServerNameInput: document.getElementById('mcpServerNameInput'),
-       mcpJsonInput: document.getElementById('mcpJsonInput'),
-      mcpUseStreamableTemplateBtn: document.getElementById('mcpUseStreamableTemplateBtn'),
+      mcpServerNameInput: document.getElementById('mcpServerNameInput'),
+        mcpJsonInput: document.getElementById('mcpJsonInput'),
+       mcpAddDefaultMcpBtn: document.getElementById('mcpAddDefaultMcpBtn'),
+       mcpDefaultHelpBtn: document.getElementById('mcpDefaultHelpBtn'),
+       mcpHelpDialog: document.getElementById('mcpHelpDialog'),
+       mcpHelpCloseBtn: document.getElementById('mcpHelpCloseBtn'),
+       mcpHelpOkBtn: document.getElementById('mcpHelpOkBtn'),
+       mcpUseStreamableTemplateBtn: document.getElementById('mcpUseStreamableTemplateBtn'),
       mcpUseSseTemplateBtn: document.getElementById('mcpUseSseTemplateBtn'),
       mcpRefreshBtn: document.getElementById('mcpRefreshBtn'),
       mcpSummary: document.getElementById('mcpSummary'),

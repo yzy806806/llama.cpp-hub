@@ -983,7 +983,7 @@ function loadModel(modelId, modelName, param1, param2) {
     else delete modal.__nodeId;
     applyModelActionSubmitButtonState(modal, mode === 'benchmark' ? 'benchmark' : 'load');
     const hint = findById(modal, 'ctxSizeVramHint');
-    if (hint) hint.textContent = '';
+    setVramHint(hint, '');
     ensureModelCapabilitiesWired(modal);
     loadModelCapabilities(modelId, modal);
     window.__loadModelSelectedDevices = ['All'];
@@ -1374,6 +1374,18 @@ function saveModelConfigAction() {
 }
 
 // 估算显存的功能
+function setVramHint(hint, text) {
+    if (!hint) return;
+    const icon = hint.querySelector('i');
+    [...hint.childNodes].forEach(n => { if (n.nodeType === Node.TEXT_NODE) hint.removeChild(n); });
+    if (text) {
+        hint.appendChild(document.createTextNode(text));
+        if (icon) icon.style.display = '';
+    } else if (icon) {
+        icon.style.display = 'none';
+    }
+}
+
 function estimateVramAction() {
     const modal = getLoadModelModal();
     const payload = buildLoadModelPayload(modal);
@@ -1383,7 +1395,7 @@ function estimateVramAction() {
         return;
     }
     const hint = findById(modal, 'ctxSizeVramHint');
-    if (hint) hint.textContent = t('common.calculating', '正在计算……');
+    setVramHint(hint, t('common.calculating', '正在计算……'));
 
     const llamaBinPathSelect = payload && payload.llamaBinPathSelect ? String(payload.llamaBinPathSelect).trim() : '';
     const cmd = payload && payload.cmd ? String(payload.cmd).trim() : '';
@@ -1409,10 +1421,10 @@ function estimateVramAction() {
             const vram = res.data && res.data.vram !== undefined && res.data.vram !== null ? String(res.data.vram).trim() : '';
             if (vram) {
                 const text = `${t('modal.model_action.vram.estimate', '预计显存')}：${vram} MiB`;
-                if (hint) hint.textContent = text;
+                setVramHint(hint, text);
             } else if(res.data.message) {
 				showToast(t('toast.error', '错误'), t('modal.model_action.vram.estimate_error', '估算错误'), 'error');
-				if (hint) hint.textContent = res.data.message;
+				setVramHint(hint, res.data.message);
             } else{
 				showToast(t('toast.error', '错误'), t('modal.model_action.vram.invalid_response', '返回数据格式不正确'), 'error');
 			}

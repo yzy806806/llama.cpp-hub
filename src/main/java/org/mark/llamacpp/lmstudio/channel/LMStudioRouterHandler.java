@@ -171,6 +171,11 @@ public class LMStudioRouterHandler extends SimpleChannelInboundHandler<FullHttpR
 			this.openAIService.handleOpenAIEmbeddingsRequest(ctx, request);
 			return true;
 		}
+		// 重排序
+		if (uri.startsWith("/v1/rerank") || uri.startsWith("/v1/reranking") || uri.startsWith("/rerank") || uri.startsWith("/reranking")) {
+			this.openAIService.handleOpenAIRerankRequest(ctx, request);
+			return true;
+		}
 		
 		return false;
 	}

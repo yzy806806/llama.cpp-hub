@@ -1,6 +1,4 @@
-package org.mark.llamacpp.download.struct;
-
-
+package org.mark.file.downloader;
 
 /**
  * 	模型下载的请求结构。

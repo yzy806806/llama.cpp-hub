@@ -5,22 +5,23 @@ import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -63,6 +64,7 @@ public class McpClientService {
 		return INSTANCE;
 	}
 
+	private final HttpClient httpClient;
 	/** 注册表文件路径，存储已配置的 MCP 服务信息 */
 	private final Path registryPath;
 	/** 工具名称到服务器 URL 的映射索引 */
@@ -81,6 +83,9 @@ public class McpClientService {
 	}
 
 	private McpClientService(Path registryPath) {
+		this.httpClient = HttpClient.newBuilder()
+			.connectTimeout(Duration.ofSeconds(30))
+			.build();
 		this.registryPath = registryPath;
 	}
 
@@ -351,8 +356,7 @@ public class McpClientService {
 	}
 	
 	private JsonObject callToolShortLived(String sseUrl, String toolName, JsonObject args, JsonObject headers) throws Exception {
-		HttpURLConnection connection = createSseConnection(sseUrl, headers);
-		connection.setReadTimeout(1000);
+		HttpResponse<InputStream> response = createSseConnection(sseUrl, headers);
 		long deadline = System.currentTimeMillis() + (DEFAULT_CALL_TIMEOUT_SECONDS * 1000L);
 
 		URI postUri = null;
@@ -360,23 +364,14 @@ public class McpClientService {
 		int callId = ThreadLocalRandom.current().nextInt(10, Integer.MAX_VALUE);
 		boolean callSent = false;
 
-		try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+		try (InputStream in = response.body();
+				BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
 			String line;
 			while (true) {
 				if (Thread.currentThread().isInterrupted()) {
 					throw new InterruptedIOException("工具调用已取消: " + sseUrl);
 				}
-				try {
-					line = reader.readLine();
-				} catch (SocketTimeoutException e) {
-					if (Thread.currentThread().isInterrupted()) {
-						throw new InterruptedIOException("工具调用已取消: " + sseUrl);
-					}
-					if (System.currentTimeMillis() >= deadline) {
-						throw new IOException("等待 tools/call 响应超时: " + sseUrl, e);
-					}
-					continue;
-				}
+				line = reader.readLine();
 				if (line == null) {
 					break;
 				}
@@ -428,9 +423,10 @@ public class McpClientService {
 				if (id == callId) {
 					return json;
 				}
+				if (System.currentTimeMillis() >= deadline) {
+					throw new IOException("等待 tools/call 响应超时: " + sseUrl);
+				}
 			}
-		} finally {
-			connection.disconnect();
 		}
 
 		throw new IOException("未收到 tools/call 响应: " + sseUrl);
@@ -441,14 +437,15 @@ public class McpClientService {
 	 * 该方法会临时建立连接并进行 MCP 握手，以获取服务器支持的工具。
 	 */
 	private JsonElement fetchToolsFromSse(String sseUrl, JsonObject headers) throws Exception {
-		HttpURLConnection connection = createSseConnection(sseUrl, headers);
+		HttpResponse<InputStream> response = createSseConnection(sseUrl, headers);
 
 		boolean initialized = false;
 		URI postUri = null;
 		String lastEvent = null;
 
-		try (BufferedReader reader = new BufferedReader(
-				new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+		try (InputStream in = response.body();
+				BufferedReader reader = new BufferedReader(
+				new InputStreamReader(in, StandardCharsets.UTF_8))) {
 			String line;
 			while ((line = reader.readLine()) != null) {
 				if (line.isBlank()) {
@@ -491,8 +488,6 @@ public class McpClientService {
 					}
 				}
 			}
-		} finally {
-			connection.disconnect();
 		}
 
 		throw new IOException("未收到 tools/list 响应");
@@ -588,29 +583,25 @@ public class McpClientService {
 	/**
 	 * 创建到 SSE 服务器的 HTTP 连接。
 	 */
-	private HttpURLConnection createSseConnection(String sseUrl, JsonObject headers) throws IOException, URISyntaxException {
-		URI uri = new URI(sseUrl);
-		URL url = uri.toURL();
-		HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-		connection.setRequestMethod("GET");
-		connection.setConnectTimeout(DEFAULT_READY_TIMEOUT_SECONDS * 1000);
-		connection.setReadTimeout(DEFAULT_READY_TIMEOUT_SECONDS * 1000);
+	private HttpResponse<InputStream> createSseConnection(String sseUrl, JsonObject headers) throws IOException, URISyntaxException, InterruptedException {
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+			.uri(new URI(sseUrl))
+			.timeout(Duration.ofSeconds(DEFAULT_READY_TIMEOUT_SECONDS))
+			.header(HEADER_ACCEPT, "text/event-stream")
+			.header(HEADER_USER_AGENT, USER_AGENT)
+			.header(HEADER_CACHE_CONTROL, "no-cache")
+			.header(HEADER_CONNECTION, "keep-alive")
+			.header(HEADER_REFERER, "https://cherry-ai.com")
+			.header(HEADER_X_TITLE, "Cherry Studio");
+		applyResolvedHeaders(requestBuilder, headers);
+		HttpRequest request = requestBuilder.GET().build();
 
-		// 设置 SSE 标准请求头
-		connection.setRequestProperty(HEADER_ACCEPT, "text/event-stream");
-		connection.setRequestProperty(HEADER_USER_AGENT, USER_AGENT);
-		connection.setRequestProperty(HEADER_CACHE_CONTROL, "no-cache");
-		connection.setRequestProperty(HEADER_CONNECTION, "keep-alive");
-		connection.setRequestProperty(HEADER_REFERER, "https://cherry-ai.com");
-		connection.setRequestProperty(HEADER_X_TITLE, "Cherry Studio");
-		applyResolvedHeaders(connection, headers);
-
-		int responseCode = connection.getResponseCode();
+		HttpResponse<InputStream> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+		int responseCode = response.statusCode();
 		if (responseCode != 200) {
-			String err = readAll(connection.getErrorStream());
-			throw new IOException("SSE连接失败，状态码=" + responseCode + ", body=" + (err == null ? "" : err));
+			throw new IOException("SSE连接失败，状态码=" + responseCode);
 		}
-		return connection;
+		return response;
 	}
 
 	/**
@@ -800,72 +791,55 @@ public class McpClientService {
 	}
 
 	private JsonRpcHttpResponse sendJsonRpcPost(URI uri, JsonObject json, JsonObject headers, String sessionId) throws IOException {
-		HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
-		conn.setRequestMethod("POST");
-		conn.setConnectTimeout(DEFAULT_READY_TIMEOUT_SECONDS * 1000);
-		conn.setReadTimeout(DEFAULT_CALL_TIMEOUT_SECONDS * 1000);
-		conn.setRequestProperty("Content-Type", "application/json");
-		conn.setRequestProperty(HEADER_ACCEPT, "application/json, text/event-stream");
-		conn.setRequestProperty(HEADER_USER_AGENT, "JavaMcpClient");
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+			.uri(uri)
+			.timeout(Duration.ofSeconds(DEFAULT_CALL_TIMEOUT_SECONDS))
+			.header("Content-Type", "application/json")
+			.header(HEADER_ACCEPT, "application/json, text/event-stream")
+			.header(HEADER_USER_AGENT, "JavaMcpClient")
+			.POST(HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(json), StandardCharsets.UTF_8));
 		if (sessionId != null && !sessionId.isBlank()) {
-			conn.setRequestProperty(SESSION_HEADER, sessionId);
+			requestBuilder.header(SESSION_HEADER, sessionId);
 		}
-		applyResolvedHeaders(conn, headers);
-		conn.setDoOutput(true);
+		applyResolvedHeaders(requestBuilder, headers);
 
-		try (OutputStream os = conn.getOutputStream()) {
-			byte[] input = JsonUtil.toJson(json).getBytes(StandardCharsets.UTF_8);
-			os.write(input, 0, input.length);
-		}
-
+		HttpResponse<String> response;
 		try {
-			int code = conn.getResponseCode();
-			String responseSessionId = conn.getHeaderField(SESSION_HEADER);
-			InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-			String body = readAll(stream);
-			if (code < 200 || code >= 300) {
-				throw new IOException("MCP请求失败，状态码=" + code + ", body=" + (body == null ? "" : body));
-			}
-			return new JsonRpcHttpResponse(code, responseSessionId, parseObject(body));
-		} finally {
-			conn.disconnect();
+			response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("MCP请求被中断", e);
 		}
+		int code = response.statusCode();
+		Optional<String> responseSessionId = response.headers().firstValue(SESSION_HEADER);
+		String body = response.body();
+		if (code < 200 || code >= 300) {
+			throw new IOException("MCP请求失败，状态码=" + code + ", body=" + (body == null ? "" : body));
+		}
+		return new JsonRpcHttpResponse(code, responseSessionId.orElse(null), parseObject(body));
 	}
 
 	private void sendDelete(URI uri, JsonObject headers, String sessionId) throws IOException {
-		HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
-		conn.setRequestMethod("DELETE");
-		conn.setConnectTimeout(DEFAULT_READY_TIMEOUT_SECONDS * 1000);
-		conn.setReadTimeout(DEFAULT_READY_TIMEOUT_SECONDS * 1000);
-		conn.setRequestProperty(HEADER_ACCEPT, "application/json");
-		conn.setRequestProperty(HEADER_USER_AGENT, "JavaMcpClient");
+		HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+			.uri(uri)
+			.timeout(Duration.ofSeconds(DEFAULT_READY_TIMEOUT_SECONDS))
+			.header(HEADER_ACCEPT, "application/json")
+			.header(HEADER_USER_AGENT, "JavaMcpClient")
+			.DELETE();
 		if (sessionId != null && !sessionId.isBlank()) {
-			conn.setRequestProperty(SESSION_HEADER, sessionId);
+			requestBuilder.header(SESSION_HEADER, sessionId);
 		}
-		applyResolvedHeaders(conn, headers);
+		applyResolvedHeaders(requestBuilder, headers);
 		try {
-			int code = conn.getResponseCode();
+			HttpResponse<String> response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+			int code = response.statusCode();
 			if (code < 200 || code >= 300) {
-				String body = readAll(conn.getErrorStream());
+				String body = response.body();
 				throw new IOException("MCP会话关闭失败，状态码=" + code + ", body=" + (body == null ? "" : body));
 			}
-			readAll(conn.getInputStream());
-		} finally {
-			conn.disconnect();
-		}
-	}
-
-	private static String readAll(InputStream is) throws IOException {
-		if (is == null) {
-			return null;
-		}
-		try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-			StringBuilder sb = new StringBuilder();
-			String line;
-			while ((line = br.readLine()) != null) {
-				sb.append(line);
-			}
-			return sb.toString();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("MCP会话关闭被中断", e);
 		}
 	}
 
@@ -962,8 +936,8 @@ public class McpClientService {
 		return out.size() == 0 ? null : out;
 	}
 	
-	private static void applyResolvedHeaders(HttpURLConnection conn, JsonObject headers) {
-		if (conn == null || headers == null || headers.size() == 0) {
+	private static void applyResolvedHeaders(HttpRequest.Builder requestBuilder, JsonObject headers) {
+		if (requestBuilder == null || headers == null || headers.size() == 0) {
 			return;
 		}
 		for (Map.Entry<String, JsonElement> e : headers.entrySet()) {
@@ -976,7 +950,7 @@ public class McpClientService {
 			if (raw == null) {
 				continue;
 			}
-			conn.setRequestProperty(key, resolveEnvPlaceholders(raw));
+			requestBuilder.header(key, resolveEnvPlaceholders(raw));
 		}
 	}
 	

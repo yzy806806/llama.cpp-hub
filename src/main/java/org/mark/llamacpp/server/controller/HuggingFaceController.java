@@ -66,9 +66,6 @@ public class HuggingFaceController implements BaseController {
 
 			var result = HuggingFaceSearcher.search(query.trim(), limit, timeoutSeconds, startPage, maxPages, base);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求被中断: " + e.getMessage()));
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("搜索失败: " + e.getMessage()));
 		}
@@ -94,9 +91,6 @@ public class HuggingFaceController implements BaseController {
 			String base = firstNonBlank(params.get("base"), params.get("baseUrl"), params.get("host"));
 			var result = HuggingFaceSearcher.listGgufFiles(input.trim(), timeoutSeconds, base);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求被中断: " + e.getMessage()));
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("解析GGUF失败: " + e.getMessage()));
 		}
@@ -116,9 +110,6 @@ public class HuggingFaceController implements BaseController {
 			String base = firstNonBlank(params.get("base"), params.get("baseUrl"), params.get("host"));
 			var result = HuggingFaceSearcher.fetchReadme(input.trim(), timeoutSeconds, base);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(result));
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("请求被中断: " + e.getMessage()));
 		} catch (Exception e) {
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取README失败: " + e.getMessage()));
 		}

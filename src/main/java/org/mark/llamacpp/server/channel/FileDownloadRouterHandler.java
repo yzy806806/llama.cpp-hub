@@ -19,7 +19,7 @@ import java.util.stream.Stream;
 import org.mark.file.downloader.DownloadTaskInfo;
 import org.mark.file.downloader.DownloadTaskManager;
 import org.mark.file.downloader.DownloadTaskStatus;
-import org.mark.llamacpp.download.struct.ModelDownloadRequest;
+import org.mark.file.downloader.ModelDownloadRequest;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.tools.JsonUtil;

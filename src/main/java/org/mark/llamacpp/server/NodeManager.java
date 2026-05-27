@@ -6,20 +6,22 @@ import org.mark.llamacpp.server.websocket.RemoteWebSocketClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +39,7 @@ public class NodeManager {
 
     private static final NodeManager INSTANCE = new NodeManager();
 
+    private final HttpClient httpClient;
     private final ConcurrentHashMap<String, LlamaHubNode> nodes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> nodeLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, RemoteWebSocketClient> wsClients = new ConcurrentHashMap<>();
@@ -51,6 +54,43 @@ public class NodeManager {
     }
 
     private NodeManager() {
+        try {
+            TrustManager[] trustAll = new TrustManager[]{
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                }
+            };
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAll, new SecureRandom());
+            SSLParameters sslParameters = new SSLParameters();
+            sslParameters.setEndpointIdentificationAlgorithm(null);
+            this.httpClient = HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .sslParameters(sslParameters)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create HttpClient", e);
+        }
+    }
+
+    /**
+     * 配置 HttpsURLConnection 信任所有证书并跳过主机名验证
+     */
+    public static void trustAllCerts(javax.net.ssl.HttpsURLConnection connection) throws Exception {
+        TrustManager[] trustAll = new TrustManager[]{
+            new X509TrustManager() {
+                public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+            }
+        };
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, trustAll, new SecureRandom());
+        connection.setSSLSocketFactory(sslContext.getSocketFactory());
+        connection.setHostnameVerifier((hostname, session) -> true);
     }
 
     /**
@@ -268,69 +308,103 @@ public class NodeManager {
         if (node == null || node.baseUrl == null) {
             return new HttpResult(404, "Node not found: " + nodeId);
         }
-        HttpURLConnection connection = null;
         try {
             String targetUrl = node.baseUrl + "/" + path.replaceFirst("^/", "");
-            URL url = URI.create(targetUrl).toURL();
-            connection = (HttpURLConnection) url.openConnection();
-
-            if (connection instanceof HttpsURLConnection) {
-                trustAllCerts((HttpsURLConnection) connection);
-            }
-
-            connection.setRequestMethod(method);
-            connection.setConnectTimeout(connectTimeout);
-            connection.setReadTimeout(readTimeout);
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(targetUrl))
+                .timeout(Duration.ofMillis(readTimeout))
+                .method(method, body != null && (method.equals("POST") || method.equals("PUT"))
+                    ? HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body), StandardCharsets.UTF_8)
+                    : HttpRequest.BodyPublishers.noBody());
 
             if (node.apiKey != null && !node.apiKey.isBlank()) {
-                connection.setRequestProperty("Authorization", "Bearer " + node.apiKey);
+                requestBuilder.header("Authorization", "Bearer " + node.apiKey);
             }
-
             if (body != null && (method.equals("POST") || method.equals("PUT"))) {
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                try (OutputStream os = connection.getOutputStream()) {
-                    String jsonStr = JsonUtil.toJson(body);
-                    os.write(jsonStr.getBytes(StandardCharsets.UTF_8));
-                }
+                requestBuilder.header("Content-Type", "application/json; charset=UTF-8");
             }
 
-            int responseCode = connection.getResponseCode();
-            String responseBody;
-            if (responseCode >= 200 && responseCode < 300) {
-                responseBody = readStream(connection.getInputStream());
-            } else {
-                responseBody = readStream(connection.getErrorStream());
-            }
-            return new HttpResult(responseCode, responseBody);
+            HttpResponse<String> response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return new HttpResult(response.statusCode(), response.body() != null ? response.body() : "");
         } catch (IOException e) {
             logger.warn("远程API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
             return new HttpResult(502, "Connection failed: " + e.getMessage());
         } catch (Exception e) {
             logger.warn("远程API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
             return new HttpResult(502, "Connection failed: " + e.getMessage());
-        } finally {
-            if (connection != null) connection.disconnect();
         }
     }
 
     /**
-     * 信任所有 HTTPS 证书（用于自签名证书场景）
+     * 流式远程 API 调用结果
      */
-    public static void trustAllCerts(HttpsURLConnection connection) throws Exception {
-        TrustManager[] trustAll = new TrustManager[]{
-                new X509TrustManager() {
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+    public static class StreamResult {
+        final int statusCode;
+        final java.io.InputStream body;
+
+        public StreamResult(int statusCode, java.io.InputStream body) {
+            this.statusCode = statusCode;
+            this.body = body;
+        }
+
+        public boolean isSuccess() {
+            return statusCode >= 200 && statusCode < 300;
+        }
+
+        public int getStatusCode() {
+            return statusCode;
+        }
+
+        public java.io.InputStream getBody() {
+            return body;
+        }
+    }
+
+    /**
+     * 流式远程 API 调用，返回 InputStream 用于逐行读取 SSE 响应
+     */
+    public StreamResult callRemoteApiStreaming(String nodeId, String method, String path, JsonObject body, java.util.Map<String, String> headers, int readTimeout) {
+        LlamaHubNode node = getNode(nodeId);
+        if (node == null || node.baseUrl == null) {
+            return new StreamResult(404, new java.io.ByteArrayInputStream(("Node not found: " + nodeId).getBytes(StandardCharsets.UTF_8)));
+        }
+        try {
+            String targetUrl = node.baseUrl + "/" + path.replaceFirst("^/", "");
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(targetUrl))
+                .timeout(Duration.ofMillis(readTimeout))
+                .method(method, body != null && (method.equals("POST") || method.equals("PUT"))
+                    ? HttpRequest.BodyPublishers.ofString(JsonUtil.toJson(body), StandardCharsets.UTF_8)
+                    : HttpRequest.BodyPublishers.noBody());
+
+            if (node.apiKey != null && !node.apiKey.isBlank()) {
+                requestBuilder.header("Authorization", "Bearer " + node.apiKey);
+            }
+            if (body != null && (method.equals("POST") || method.equals("PUT"))) {
+                requestBuilder.header("Content-Type", "application/json; charset=UTF-8");
+            }
+            if (headers != null) {
+                for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
+                    String key = entry.getKey();
+                    if (!key.equalsIgnoreCase("Connection") &&
+                        !key.equalsIgnoreCase("Content-Length") &&
+                        !key.equalsIgnoreCase("Transfer-Encoding") &&
+                        !key.equalsIgnoreCase("Authorization") &&
+                        !key.equalsIgnoreCase("Content-Type")) {
+                        requestBuilder.header(key, entry.getValue());
+                    }
                 }
-        };
-        SSLContext sc = SSLContext.getInstance("TLS");
-        sc.init(null, trustAll, new java.security.SecureRandom());
-        connection.setSSLSocketFactory(sc.getSocketFactory());
-        connection.setHostnameVerifier(new HostnameVerifier() {
-            public boolean verify(String hostname, javax.net.ssl.SSLSession session) { return true; }
-        });
+            }
+
+            HttpResponse<java.io.InputStream> response = this.httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
+            return new StreamResult(response.statusCode(), response.body());
+        } catch (IOException e) {
+            logger.warn("流式API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
+            return new StreamResult(502, new java.io.ByteArrayInputStream(("Connection failed: " + e.getMessage()).getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            logger.warn("流式API调用失败: nodeId={}, path={}, error={}", nodeId, path, e.getMessage());
+            return new StreamResult(502, new java.io.ByteArrayInputStream(("Connection failed: " + e.getMessage()).getBytes(StandardCharsets.UTF_8)));
+        }
     }
 
     /**

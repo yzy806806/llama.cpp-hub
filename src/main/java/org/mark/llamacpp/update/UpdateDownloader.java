@@ -1,13 +1,7 @@
 package org.mark.llamacpp.update;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -15,6 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.mark.llamacpp.crawler.NettyHttpUtils;
+import org.mark.llamacpp.crawler.UserAgentUtils;
 import org.mark.llamacpp.server.websocket.WebSocketManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +34,7 @@ public class UpdateDownloader {
     private volatile String errorMessage;
 
     // i18n keys — sent via WebSocket for frontend translation
-    private static final String I18N_HTTP_ERROR = "update.download.failed.http";
+    //private static final String I18N_HTTP_ERROR = "update.download.failed.http";
     private static final String I18N_CANCELLED = "update.download.cancelled";
     private static final String I18N_FAILED = "update.download.failed";
 
@@ -114,51 +110,28 @@ public class UpdateDownloader {
     private void downloadZip(String url, Path userDir) {
         Path target = userDir.resolve(UPDATE_ZIP).normalize();
         try {
-            Path parent = target.getParent();
-            if (parent != null && !Files.exists(parent)) {
-                Files.createDirectories(parent);
-            }
+            NettyHttpUtils.downloadToFile(url)
+                    .targetFile(target)
+                    .connectTimeout(30)
+                    .readTimeout(600)
+                    .header("User-Agent", UserAgentUtils.random())
+                    .header("Accept", "*/*")
+                    .cancelled(cancelled)
+                    .progressListener((dl, total) -> {
+                        downloadedBytes.set(dl);
+                        if (total > 0) {
+                            totalBytes.set(total);
+                        }
+                        broadcastProgress();
+                    })
+                    .execute();
 
-            HttpURLConnection conn = connect(url);
-            int respCode = conn.getResponseCode();
-            if (respCode != HttpURLConnection.HTTP_OK) {
-                conn.disconnect();
-                fail(I18N_HTTP_ERROR);
+            if (cancelled.get()) {
+                cleanup(target);
+                status.set(UpdateDownloadStatus.IDLE);
+                WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, I18N_CANCELLED);
                 return;
             }
-
-            long contentLength = conn.getContentLengthLong();
-            if (contentLength > 0) {
-                totalBytes.set(contentLength);
-            }
-
-            broadcastProgress();
-
-            try (InputStream in = conn.getInputStream(); OutputStream out = new FileOutputStream(target.toFile())) {
-                byte[] buf = new byte[8192];
-                int len;
-                long lastBroadcast = System.currentTimeMillis();
-
-                while ((len = in.read(buf)) != -1) {
-                    if (cancelled.get()) {
-                        conn.disconnect();
-                        cleanup(target);
-                        status.set(UpdateDownloadStatus.IDLE);
-                        WebSocketManager.getInstance().sendAppUpdateEvent("failed", 0, totalBytes.get(), -1, currentVersion, I18N_CANCELLED);
-                        return;
-                    }
-                    out.write(buf, 0, len);
-                    downloadedBytes.addAndGet(len);
-
-                    long now = System.currentTimeMillis();
-                    if (now - lastBroadcast >= 500) {
-                        broadcastProgress();
-                        lastBroadcast = now;
-                    }
-                }
-                out.flush();
-            }
-            conn.disconnect();
 
             savePendingVersion(userDir, currentVersion);
             status.set(UpdateDownloadStatus.READY);
@@ -175,25 +148,6 @@ public class UpdateDownloader {
             fail(I18N_FAILED);
             cleanup(target);
         }
-    }
-
-    private HttpURLConnection connect(String downloadUrl) throws IOException {
-        URL url = URI.create(downloadUrl).toURL();
-        
-        // 获取代理配置
-        java.net.Proxy javaProxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-        HttpURLConnection conn;
-        if (javaProxy != null) {
-            conn = (HttpURLConnection) url.openConnection(javaProxy);
-        } else {
-            conn = (HttpURLConnection) url.openConnection();
-        }
-        
-        conn.setRequestProperty("User-Agent", "llama.cpp-hub-updater");
-        conn.setRequestProperty("Accept", "*/*");
-        conn.setConnectTimeout(30_000);
-        conn.setReadTimeout(120_000);
-        return conn;
     }
 
     private void broadcastProgress() {

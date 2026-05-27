@@ -4,19 +4,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
-import java.net.Authenticator;
-import java.net.HttpURLConnection;
-import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -34,6 +35,7 @@ public class SimpleHttpDownloader {
 	private static final long DEFAULT_PROGRESS_EMIT_INTERVAL_MS = 1_000L;
 	private static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) JavaDownloader/1.0";
 
+	private final HttpClient httpClient;
 	private final int threadCount;
 	private final int timeoutMs;
 	private final int maxRedirects;
@@ -59,6 +61,10 @@ public class SimpleHttpDownloader {
 		if (bufferSize < 1) {
 			throw new IllegalArgumentException("bufferSize must be >= 1");
 		}
+		this.httpClient = HttpClient.newBuilder()
+			.followRedirects(HttpClient.Redirect.NEVER)
+			.connectTimeout(Duration.ofMillis(timeoutMs))
+			.build();
 		this.threadCount = threadCount;
 		this.timeoutMs = timeoutMs;
 		this.maxRedirects = maxRedirects;
@@ -168,106 +174,93 @@ public class SimpleHttpDownloader {
 	}
 
 	private ProbeResult probeByHead(String finalUrl) throws IOException {
-		HttpURLConnection connection = openConnection(finalUrl, "HEAD");
+		HttpRequest request = buildRequest(finalUrl, "HEAD");
 		try {
-			int code = connection.getResponseCode();
+			HttpResponse<Void> response = this.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+			int code = response.statusCode();
 			if (isRedirectCode(code)) {
-				String redirected = resolveLocation(finalUrl, connection.getHeaderField("Location"));
+				String redirected = resolveLocation(finalUrl, firstHeader(response, "Location"));
 				return probeByHead(resolveRedirects(redirected));
 			}
 			if (code < 200 || code >= 400) {
 				return new ProbeResult(finalUrl, -1, false, null, null);
 			}
-			long contentLength = parseContentLength(connection.getHeaderField("Content-Length"));
-			boolean rangeSupported = isRangeSupported(connection.getHeaderField("Accept-Ranges"));
-			String etag = normalizeHeaderValue(connection.getHeaderField("ETag"));
-			String lastModified = normalizeHeaderValue(connection.getHeaderField("Last-Modified"));
+			long contentLength = parseContentLength(firstHeader(response, "Content-Length"));
+			boolean rangeSupported = isRangeSupported(firstHeader(response, "Accept-Ranges"));
+			String etag = normalizeHeaderValue(firstHeader(response, "ETag"));
+			String lastModified = normalizeHeaderValue(firstHeader(response, "Last-Modified"));
 			return new ProbeResult(finalUrl, contentLength, rangeSupported, etag, lastModified);
-		} finally {
-			connection.disconnect();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("探测被中断", e);
 		}
 	}
 
 	private ProbeResult probeByRange(String finalUrl) throws IOException {
-		HttpURLConnection connection = openConnection(finalUrl, "GET");
-		connection.setRequestProperty("Range", "bytes=0-0");
+		HttpRequest.Builder builder = buildRequestBuilder(finalUrl);
+		builder.header("Range", "bytes=0-0");
+		HttpRequest request = builder.build();
 		try {
-			int code = connection.getResponseCode();
+			HttpResponse<Void> response = this.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+			int code = response.statusCode();
 			if (isRedirectCode(code)) {
-				String redirected = resolveLocation(finalUrl, connection.getHeaderField("Location"));
+				String redirected = resolveLocation(finalUrl, firstHeader(response, "Location"));
 				return probeByRange(resolveRedirects(redirected));
 			}
-			if (code == HttpURLConnection.HTTP_PARTIAL) {
-				long size = parseContentRangeSize(connection.getHeaderField("Content-Range"));
-				String etag = normalizeHeaderValue(connection.getHeaderField("ETag"));
-				String lastModified = normalizeHeaderValue(connection.getHeaderField("Last-Modified"));
+			if (code == 206) {
+				long size = parseContentRangeSize(firstHeader(response, "Content-Range"));
+				String etag = normalizeHeaderValue(firstHeader(response, "ETag"));
+				String lastModified = normalizeHeaderValue(firstHeader(response, "Last-Modified"));
 				return new ProbeResult(finalUrl, size, size > 0, etag, lastModified);
 			}
-			if (code == HttpURLConnection.HTTP_OK) {
-				long size = parseContentLength(connection.getHeaderField("Content-Length"));
-				String etag = normalizeHeaderValue(connection.getHeaderField("ETag"));
-				String lastModified = normalizeHeaderValue(connection.getHeaderField("Last-Modified"));
+			if (code == 200) {
+				long size = parseContentLength(firstHeader(response, "Content-Length"));
+				String etag = normalizeHeaderValue(firstHeader(response, "ETag"));
+				String lastModified = normalizeHeaderValue(firstHeader(response, "Last-Modified"));
 				return new ProbeResult(finalUrl, size, false, etag, lastModified);
 			}
 			return new ProbeResult(finalUrl, -1, false, null, null);
-		} finally {
-			connection.disconnect();
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IOException("探测被中断", e);
 		}
 	}
 
 	public String resolveRedirects(String sourceUrl) throws IOException {
 		String current = sourceUrl;
 		for (int i = 0; i <= this.maxRedirects; i++) {
-			HttpURLConnection connection = openConnection(current, "HEAD");
+			HttpRequest request = buildRequest(current, "HEAD");
 			try {
-				int code = connection.getResponseCode();
+				HttpResponse<Void> response = this.httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+				int code = response.statusCode();
 				if (!isRedirectCode(code)) {
 					return current;
 				}
-				String location = connection.getHeaderField("Location");
+				String location = firstHeader(response, "Location");
 				current = resolveLocation(current, location);
-			} finally {
-				connection.disconnect();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new IOException("重定向解析被中断", e);
 			}
 		}
 		throw new IOException("重定向次数超过限制: " + sourceUrl);
 	}
 
-	private HttpURLConnection openConnection(String url, String method) throws IOException {
-		URL target = URI.create(url).toURL();
-		
-		// 获取代理配置
-		Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-		Authenticator oldAuthenticator = Authenticator.getDefault();
-		
-		// 设置代理认证
-		Authenticator proxyAuth = org.mark.llamacpp.server.LlamaServer.getProxyAuthenticator();
-		if (proxyAuth != null) {
-			Authenticator.setDefault(proxyAuth);
-		}
-		
-		HttpURLConnection connection;
-		try {
-			if (proxy != null) {
-				connection = (HttpURLConnection) target.openConnection(proxy);
-			} else {
-				connection = (HttpURLConnection) target.openConnection();
-			}
-		} finally {
-			// 恢复之前的认证器
-			if (oldAuthenticator != null) {
-				Authenticator.setDefault(oldAuthenticator);
-			}
-		}
-		
-		connection.setRequestMethod(method);
-		connection.setInstanceFollowRedirects(false);
-		connection.setConnectTimeout(this.timeoutMs);
-		connection.setReadTimeout(this.timeoutMs);
-		connection.setRequestProperty("User-Agent", this.userAgent);
-		connection.setRequestProperty("Accept-Encoding", "identity");
-		connection.setRequestProperty("Connection", "keep-alive");
-		return connection;
+	private HttpRequest buildRequest(String url, String method) {
+		return buildRequestBuilder(url).method(method, HttpRequest.BodyPublishers.noBody()).build();
+	}
+
+	private HttpRequest.Builder buildRequestBuilder(String url) {
+		return HttpRequest.newBuilder()
+			.uri(URI.create(url))
+			.timeout(Duration.ofMillis(this.timeoutMs))
+			.header("User-Agent", this.userAgent)
+			.header("Accept-Encoding", "identity");
+	}
+
+	private static String firstHeader(HttpResponse<?> response, String name) {
+		Optional<String> value = response.headers().firstValue(name);
+		return value.orElse(null);
 	}
 
 	private void downloadRange(String finalUrl, Path tempFile, RangeState rangeState, DownloadTracker tracker) throws IOException {
@@ -277,23 +270,24 @@ public class SimpleHttpDownloader {
 		}
 		while (current <= rangeState.end()) {
 			ensureNotStopped();
-			HttpURLConnection connection = openConnection(finalUrl, "GET");
-			connection.setRequestProperty("Range", "bytes=" + current + "-" + rangeState.end());
+			HttpRequest.Builder builder = buildRequestBuilder(finalUrl);
+			builder.header("Range", "bytes=" + current + "-" + rangeState.end());
+			HttpRequest request = builder.GET().build();
 			try {
-				int code = connection.getResponseCode();
-				if (code == HttpURLConnection.HTTP_MOVED_TEMP || code == HttpURLConnection.HTTP_MOVED_PERM
-						|| code == HttpURLConnection.HTTP_SEE_OTHER || code == 307 || code == 308) {
-					String redirected = resolveLocation(finalUrl, connection.getHeaderField("Location"));
+				HttpResponse<InputStream> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+				int code = response.statusCode();
+				if (isRedirectCode(code)) {
+					String redirected = resolveLocation(finalUrl, firstHeader(response, "Location"));
 					finalUrl = resolveRedirects(redirected);
 					continue;
 				}
-				if (code != HttpURLConnection.HTTP_PARTIAL && code != HttpURLConnection.HTTP_OK) {
+				if (code != 206 && code != 200) {
 					throw new IOException("HTTP请求失败, code=" + code + ", range=" + current + "-" + rangeState.end());
 				}
-				if (code == HttpURLConnection.HTTP_OK && current > rangeState.start()) {
+				if (code == 200 && current > rangeState.start()) {
 					throw new RetryAsSingleDownloadException("服务端忽略Range续传，切换为单线程全量下载");
 				}
-				try (InputStream inputStream = connection.getInputStream();
+				try (InputStream inputStream = response.body();
 						RandomAccessFile raf = new RandomAccessFile(tempFile.toFile(), "rw")) {
 					raf.seek(current);
 					byte[] buffer = new byte[this.bufferSize];
@@ -319,8 +313,9 @@ public class SimpleHttpDownloader {
 					tracker.onPartCompleted();
 					return;
 				}
-			} finally {
-				connection.disconnect();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				throw new IOException("下载被中断", e);
 			}
 		}
 	}
@@ -458,11 +453,7 @@ public class SimpleHttpDownloader {
 	}
 
 	private static boolean isRedirectCode(int code) {
-		return code == HttpURLConnection.HTTP_MOVED_PERM
-				|| code == HttpURLConnection.HTTP_MOVED_TEMP
-				|| code == HttpURLConnection.HTTP_SEE_OTHER
-				|| code == 307
-				|| code == 308;
+		return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
 	}
 
 	private static boolean isRangeSupported(String acceptRanges) {

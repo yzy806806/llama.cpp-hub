@@ -8,11 +8,7 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -65,13 +61,13 @@ public final class HuggingFaceSearcher {
     // Public – search
     // ---------------------------------------------------------------------------
 
-    public static PageResult search(String query) throws IOException, InterruptedException {
+    public static PageResult search(String query) throws IOException {
         return search(query, 30, 20, 0, 0, null);
     }
 
-    public static PageResult search(String query, int limit, int timeoutSeconds,
-                                     int startPage, int maxPages, String baseUrl)
-            throws IOException, InterruptedException {
+   public static PageResult search(String query, int limit, int timeoutSeconds,
+                                      int startPage, int maxPages, String baseUrl)
+            throws IOException {
         if (query == null || query.isBlank())
             throw new IllegalArgumentException("query cannot be empty");
 
@@ -113,12 +109,12 @@ public final class HuggingFaceSearcher {
     // ---------------------------------------------------------------------------
 
     public static GgufCrawlResult listGgufFiles(String repoId)
-            throws IOException, InterruptedException {
+            throws IOException {
         return listGgufFiles(repoId, 20, null);
     }
 
     public static GgufCrawlResult listGgufFiles(String repoId, int timeoutSeconds, String baseUrl)
-            throws IOException, InterruptedException {
+            throws IOException {
         if (repoId == null || repoId.isBlank())
             throw new IllegalArgumentException("repoId cannot be empty");
 
@@ -128,13 +124,12 @@ public final class HuggingFaceSearcher {
         if (normalizedId == null)
             throw new IllegalArgumentException("Invalid repoId: " + repoId);
 
-        HttpClient client = newHttpClient(safeTimeout);
         String revision = null;
         String treeError = null;
         List<GgufFile> files;
 
         try {
-            JsonObject modelInfo = fetchModelInfo(base, normalizedId, client, safeTimeout);
+            JsonObject modelInfo = fetchModelInfo(base, normalizedId, safeTimeout);
             revision = getString(modelInfo, "sha");
             if (revision == null || revision.isBlank())
                 revision = "main";
@@ -143,13 +138,13 @@ public final class HuggingFaceSearcher {
         }
 
         try {
-            files = crawlGgufTargeted(base, normalizedId, revision, client, safeTimeout);
+            files = crawlGgufTargeted(base, normalizedId, revision, safeTimeout);
         } catch (Exception e) {
             String fallbackRev = findFallbackRevision(revision);
             if (fallbackRev == null) fallbackRev = "main";
             try {
                 revision = fallbackRev;
-                files = crawlGgufTargeted(base, normalizedId, revision, client, safeTimeout);
+                files = crawlGgufTargeted(base, normalizedId, revision, safeTimeout);
             } catch (Exception e2) {
                 files = new ArrayList<>();
                 treeError = e2.getMessage();
@@ -160,12 +155,12 @@ public final class HuggingFaceSearcher {
     }
 
     public static ReadmeResult fetchReadme(String repoId)
-            throws IOException, InterruptedException {
+            throws IOException {
         return fetchReadme(repoId, 20, null);
     }
 
     public static ReadmeResult fetchReadme(String repoId, int timeoutSeconds, String baseUrl)
-            throws IOException, InterruptedException {
+            throws IOException {
         if (repoId == null || repoId.isBlank())
             throw new IllegalArgumentException("repoId cannot be empty");
 
@@ -175,11 +170,10 @@ public final class HuggingFaceSearcher {
         if (normalizedId == null)
             throw new IllegalArgumentException("Invalid repoId: " + repoId);
 
-        HttpClient client = newHttpClient(safeTimeout);
         String revision = "main";
         JsonObject modelInfo = null;
         try {
-            modelInfo = fetchModelInfo(base, normalizedId, client, safeTimeout);
+            modelInfo = fetchModelInfo(base, normalizedId, safeTimeout);
             String fetchedRevision = getString(modelInfo, "sha");
             if (fetchedRevision != null && !fetchedRevision.isBlank()) {
                 revision = fetchedRevision;
@@ -189,7 +183,7 @@ public final class HuggingFaceSearcher {
 
         String readmePath = detectReadmePath(modelInfo);
         if (readmePath == null) {
-            readmePath = fetchReadmeByCandidates(base, normalizedId, revision, client, safeTimeout);
+            readmePath = fetchReadmeByCandidates(base, normalizedId, revision, safeTimeout);
             if (readmePath == null) {
                 String fallbackRev = findFallbackRevision(revision);
                 if (fallbackRev != null && !fallbackRev.equalsIgnoreCase(revision)) {
@@ -198,7 +192,7 @@ public final class HuggingFaceSearcher {
                         readmePath = detectReadmePath(modelInfo);
                     }
                     if (readmePath == null) {
-                        readmePath = fetchReadmeByCandidates(base, normalizedId, revision, client, safeTimeout);
+                        readmePath = fetchReadmeByCandidates(base, normalizedId, revision, safeTimeout);
                     }
                 }
             }
@@ -209,7 +203,7 @@ public final class HuggingFaceSearcher {
         }
 
         String readmeUrl = buildResolveUrl(base, normalizedId, revision, readmePath);
-        String markdown = sendTextGet(client, URI.create(readmeUrl), safeTimeout,
+        String markdown = sendTextGet(readmeUrl, safeTimeout,
                 "text/markdown, text/plain; charset=utf-8, */*");
         markdown = stripReadmeFrontMatter(markdown);
         return new ReadmeResult(normalizedId, revision, readmePath, base + "/" + normalizedId, readmeUrl, markdown);
@@ -219,13 +213,12 @@ public final class HuggingFaceSearcher {
     // Internal – model info
     // ---------------------------------------------------------------------------
 
-    private static JsonObject fetchModelInfo(String base, String repoId, HttpClient client, int timeout)
-            throws IOException, InterruptedException {
-        URI uri = URI.create(base + "/api/models/" + repoId);
-        HttpResponse<String> resp = sendGet(client, uri, timeout);
-        JsonElement root = JsonParser.parseString(resp.body());
+    private static JsonObject fetchModelInfo(String base, String repoId, int timeout)
+            throws IOException {
+        NettyHttpUtils.Response resp = sendGet(base + "/api/models/" + repoId, timeout, "application/json");
+        JsonElement root = JsonParser.parseString(resp.bodyAsString());
         if (!root.isJsonObject())
-            throw new IOException("Response is not a JSON object: " + uri);
+            throw new IOException("Response is not a JSON object: " + resp.bodyAsString());
         return root.getAsJsonObject();
     }
 
@@ -236,7 +229,7 @@ public final class HuggingFaceSearcher {
     private record InternalPage(JsonArray entries, String nextCursor) {}
 
     private static InternalPage fetchSearchPage(String base, String query, String cursor, int timeout)
-            throws IOException, InterruptedException {
+            throws IOException {
         String q = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
         StringBuilder url = new StringBuilder();
         url.append(base).append("/api/models?search=").append(q)
@@ -244,15 +237,14 @@ public final class HuggingFaceSearcher {
         if (cursor != null && !cursor.isBlank())
             url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8).replace("+", "%20"));
 
-        URI uri = URI.create(url.toString());
-        HttpResponse<String> resp = sendGet(newHttpClient(timeout), uri, timeout);
+        NettyHttpUtils.Response resp = sendGet(url.toString(), timeout, "application/json");
 
-        JsonElement root = JsonParser.parseString(resp.body());
+        JsonElement root = JsonParser.parseString(resp.bodyAsString());
         JsonArray entries = root != null && root.isJsonArray() ? root.getAsJsonArray() : new JsonArray();
 
-        String nextCursor = resp.headers().firstValue("X-Next-Cursor").orElse(null);
+        String nextCursor = resp.header("X-Next-Cursor");
         if (nextCursor == null || nextCursor.isBlank())
-            nextCursor = parseCursorFromLinkHeader(resp.headers().firstValue("Link").orElse(null));
+            nextCursor = parseCursorFromLinkHeader(resp.header("Link"));
         return new InternalPage(entries, nextCursor);
     }
 
@@ -292,13 +284,13 @@ public final class HuggingFaceSearcher {
         }
     }
 
-    // ---------------------------------------------------------------------------
+   // ---------------------------------------------------------------------------
     // Internal – repo tree (paginated)
     // ---------------------------------------------------------------------------
 
     private static List<GgufFile> crawlGgufTargeted(String base, String repoId, String revision,
-                                                      HttpClient client, int timeout)
-            throws IOException, InterruptedException {
+                                                       int timeout)
+            throws IOException {
         List<GgufFile> files = new ArrayList<>();
         Queue<String> queue = new ArrayDeque<>();
         queue.add("");
@@ -310,7 +302,7 @@ public final class HuggingFaceSearcher {
 
             String cursor = null;
             while (true) {
-                InternalPage page = fetchTreePage(base, repoId, revision, dir, cursor, client, timeout);
+                InternalPage page = fetchTreePage(base, repoId, revision, dir, cursor, timeout);
                 for (JsonElement el : page.entries) {
                     if (el == null || !el.isJsonObject()) continue;
                     JsonObject obj = el.getAsJsonObject();
@@ -340,8 +332,8 @@ public final class HuggingFaceSearcher {
     }
 
     private static InternalPage fetchTreePage(String base, String repoId, String revision,
-                                               String path, String cursor, HttpClient client, int timeout)
-            throws IOException, InterruptedException {
+                                               String path, String cursor, int timeout)
+            throws IOException {
         StringBuilder url = new StringBuilder();
         url.append(base).append("/api/models/").append(repoId)
            .append("/tree/").append(revision).append("/")
@@ -350,15 +342,14 @@ public final class HuggingFaceSearcher {
         if (cursor != null && !cursor.isBlank())
             url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8).replace("+", "%20"));
 
-        URI uri = URI.create(url.toString());
-        HttpResponse<String> resp = sendGet(client, uri, timeout);
+        NettyHttpUtils.Response resp = sendGet(url.toString(), timeout, "application/json");
 
-        JsonElement root = JsonParser.parseString(resp.body());
+        JsonElement root = JsonParser.parseString(resp.bodyAsString());
         JsonArray entries = root != null && root.isJsonArray() ? root.getAsJsonArray() : new JsonArray();
 
-        String nextCursor = resp.headers().firstValue("X-Next-Cursor").orElse(null);
+        String nextCursor = resp.header("X-Next-Cursor");
         if (nextCursor == null || nextCursor.isBlank())
-            nextCursor = parseCursorFromLinkHeader(resp.headers().firstValue("Link").orElse(null));
+            nextCursor = parseCursorFromLinkHeader(resp.header("Link"));
         return new InternalPage(entries, nextCursor);
     }
 
@@ -402,12 +393,12 @@ public final class HuggingFaceSearcher {
     }
 
     private static String fetchReadmeByCandidates(String base, String repoId, String revision,
-                                                  HttpClient client, int timeout)
-            throws IOException, InterruptedException {
+                                                  int timeout)
+            throws IOException {
         for (String candidate : readmeCandidates()) {
             String readmeUrl = buildResolveUrl(base, repoId, revision, candidate);
             try {
-                sendTextGet(client, URI.create(readmeUrl), timeout,
+                sendTextGet(readmeUrl, timeout,
                         "text/markdown, text/plain; charset=utf-8, */*");
                 return candidate;
             } catch (IOException e) {
@@ -523,53 +514,23 @@ public final class HuggingFaceSearcher {
     // HTTP helpers
     // ---------------------------------------------------------------------------
 
-    private static HttpClient newHttpClient(int timeout) {
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(timeout))
-                .followRedirects(HttpClient.Redirect.NORMAL);
-        
-        // 添加代理支持
-        java.net.Proxy proxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-        if (proxy != null && proxy.address() instanceof java.net.InetSocketAddress) {
-            builder.proxy(java.net.ProxySelector.of((java.net.InetSocketAddress) proxy.address()));
-        }
-        
-        return builder.build();
-    }
-
-    private static HttpResponse<String> sendGet(HttpClient client, URI uri, int timeout)
-            throws IOException, InterruptedException {
-        return sendGet(client, uri, timeout, "application/json");
-    }
-
-    private static HttpResponse<String> sendGet(HttpClient client, URI uri, int timeout, String accept)
-            throws IOException, InterruptedException {
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(uri)
-                .timeout(Duration.ofSeconds(timeout))
-                .header("User-Agent", "hf-model-searcher/0.1.0 (+https://huggingface.co)")
-                .header("Accept", accept == null || accept.isBlank() ? "*/*" : accept);
+    private static NettyHttpUtils.Response sendGet(String urlStr, int timeout, String accept) throws IOException {
+        NettyHttpUtils.Request req = NettyHttpUtils.request(urlStr)
+                .header("User-Agent", UserAgentUtils.random())
+                .header("Accept", accept == null || accept.isBlank() ? "*/*" : accept)
+                .readTimeout(timeout);
+                //.proxy(ProxyConfig.http("10.8.0.18", 8888, "admin", "123456")); // TODO: remove before production
+                //.proxy(ProxyConfig.http("127.0.0.1", 51213)); // TODO: remove before production
 
         String token = System.getenv("HF_TOKEN");
         if (token != null && !token.isBlank())
-            builder.header("Authorization", "Bearer " + token.trim());
+            req.header("Authorization", "Bearer " + token.trim());
 
-        HttpResponse<String> resp = client.send(
-                builder.GET().build(),
-                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-
-        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-            String body = resp.body();
-            if (body != null && body.length() > 800)
-                body = body.substring(0, 800) + "...";
-            throw new IOException("HTTP " + resp.statusCode() + " " + uri + "\n" + body);
-        }
-        return resp;
+        return req.execute();
     }
 
-    private static String sendTextGet(HttpClient client, URI uri, int timeout, String accept)
-            throws IOException, InterruptedException {
-        return sendGet(client, uri, timeout, accept).body();
+    private static String sendTextGet(String urlStr, int timeout, String accept) throws IOException {
+        return sendGet(urlStr, timeout, accept).bodyAsString();
     }
 
     // ---------------------------------------------------------------------------

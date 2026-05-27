@@ -2,6 +2,7 @@ package org.mark.llamacpp.server.controller;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -21,6 +22,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.mark.llamacpp.crawler.NettyHttpUtils;
+import org.mark.llamacpp.crawler.UserAgentUtils;
 import org.mark.llamacpp.server.LlamaCppProcess;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.LlamaServerManager;
@@ -574,7 +577,6 @@ public class LlamacppController implements BaseController {
 	 */
 	private void handleLlamaCppReleaseLatest(ChannelHandlerContext ctx, FullHttpRequest request) throws RequestMethodException {
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
-		HttpURLConnection connection = null;
 		try {
 			Map<String, String> params = ParamTool.getQueryParam(request.uri());
 			String proxy = params.get("proxy");
@@ -585,27 +587,18 @@ public class LlamacppController implements BaseController {
 			}
 
 			String apiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest";
-			URL url = URI.create(apiUrl).toURL();
-			
-			// 获取代理配置
-			java.net.Proxy javaProxy = org.mark.llamacpp.server.LlamaServer.getProxy();
-			if (javaProxy != null) {
-				connection = (HttpURLConnection) url.openConnection(javaProxy);
-			} else {
-				connection = (HttpURLConnection) url.openConnection();
-			}
-			
-			connection.setRequestMethod("GET");
-			connection.setConnectTimeout(15000);
-			connection.setReadTimeout(30000);
-			connection.setRequestProperty("Accept", "application/vnd.github.v3+json");
-			connection.setRequestProperty("User-Agent", "llama.cpp-hub");
+			NettyHttpUtils.Response resp = NettyHttpUtils.request(apiUrl)
+					.header("User-Agent", UserAgentUtils.random())
+					.header("Accept", "application/vnd.github.v3+json")
+					.connectTimeout(15)
+					.readTimeout(30)
+					.execute();
 
-			int responseCode = connection.getResponseCode();
-			String responseBody = this.readBody(connection, responseCode >= 200 && responseCode < 300);
+			String responseBody = resp.bodyAsString();
 
-			if (responseCode < 200 || responseCode >= 300 || responseBody == null) {
-				String msg = responseBody == null || responseBody.isBlank() ? ("GitHub API 错误: HTTP " + responseCode) : responseBody;
+			if (!resp.isSuccess() || responseBody == null) {
+				String msg = responseBody == null || responseBody.isBlank()
+						? ("GitHub API 错误: HTTP " + resp.statusCode()) : responseBody;
 				Map<String, Object> err = new HashMap<>();
 				err.put("success", false);
 				err.put("error", "获取 release 信息失败: " + msg);
@@ -696,19 +689,12 @@ public class LlamacppController implements BaseController {
 			result.put("success", true);
 			result.put("data", data);
 			LlamaServer.sendJsonResponse(ctx, result);
-		} catch (Exception e) {
+		} catch (IOException e) {
 			logger.info("获取 llama.cpp release 信息失败", e);
 			Map<String, Object> err = new HashMap<>();
 			err.put("success", false);
 			err.put("error", "获取 release 信息失败: " + e.getMessage());
 			LlamaServer.sendJsonResponse(ctx, err);
-		} finally {
-			if (connection != null) {
-				try {
-					connection.disconnect();
-				} catch (Exception ignore) {
-				}
-			}
 		}
 	}
 

@@ -6,7 +6,6 @@ import io.netty.handler.codec.http.DefaultHttpContent;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.*;
-import org.mark.llamacpp.server.LlamaHubNode;
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.tools.JsonUtil;
@@ -16,10 +15,6 @@ import org.slf4j.LoggerFactory;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 
@@ -46,7 +41,6 @@ public class NodeProxyService {
      */
     public void proxyRequest(ChannelHandlerContext ctx, FullHttpRequest request, String nodeId, String path, JsonObject body) {
         worker.execute(() -> {
-            HttpURLConnection connection = null;
             try {
                 NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(
                         nodeId, request.method().name(), path, body);
@@ -67,8 +61,6 @@ public class NodeProxyService {
                         org.mark.llamacpp.server.struct.ApiResponse.error("代理请求失败: " + e.getMessage()));
             } catch (Throwable t) {
                 logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
-            } finally {
-                if (connection != null) connection.disconnect();
             }
         });
     }
@@ -78,55 +70,26 @@ public class NodeProxyService {
      */
     public void proxyStreamRequest(ChannelHandlerContext ctx, FullHttpRequest request, String nodeId, String path, JsonObject body) {
         worker.execute(() -> {
-            HttpURLConnection connection = null;
+            java.io.InputStream inputStream = null;
             try {
-                LlamaHubNode node = NodeManager.getInstance().getNode(nodeId);
-                if (node == null) {
+                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                for (java.util.Map.Entry<String, String> entry : request.headers()) {
+                    headers.put(entry.getKey(), entry.getValue());
+                }
+
+                NodeManager.StreamResult result = NodeManager.getInstance().callRemoteApiStreaming(
+                        nodeId, request.method().name(), path, body, headers, 36000 * 1000);
+
+                if (!result.isSuccess()) {
                     LlamaServer.sendJsonResponse(ctx,
-                            org.mark.llamacpp.server.struct.ApiResponse.error("节点不存在: " + nodeId));
+                            org.mark.llamacpp.server.struct.ApiResponse.error("流式代理失败，状态码: " + result.getStatusCode()));
                     return;
                 }
 
-                String targetUrl = node.getBaseUrl() + "/" + path.replaceFirst("^/", "");
-                URL url = URI.create(targetUrl).toURL();
-                connection = (HttpURLConnection) url.openConnection();
-                if (connection instanceof javax.net.ssl.HttpsURLConnection) {
-                    try {
-                        NodeManager.trustAllCerts((javax.net.ssl.HttpsURLConnection) connection);
-                    } catch (Exception e) {
-                        logger.warn("配置HTTPS证书信任失败: {}", e.getMessage());
-                    }
-                }
-                connection.setRequestMethod(request.method().name());
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(36000 * 1000);
-
-                for (java.util.Map.Entry<String, String> entry : request.headers()) {
-                    String key = entry.getKey();
-                    if (!key.equalsIgnoreCase("Connection") &&
-                        !key.equalsIgnoreCase("Content-Length") &&
-                        !key.equalsIgnoreCase("Transfer-Encoding")) {
-                        connection.setRequestProperty(key, entry.getValue());
-                    }
-                }
-
-                if (node.getApiKey() != null && !node.getApiKey().isBlank()) {
-                    connection.setRequestProperty("Authorization", "Bearer " + node.getApiKey());
-                }
-
-                if ((request.method() == HttpMethod.POST || request.method() == HttpMethod.PUT) && body != null) {
-                    connection.setDoOutput(true);
-                    connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                    try (OutputStream os = connection.getOutputStream()) {
-                        String jsonStr = JsonUtil.toJson(body);
-                        os.write(jsonStr.getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-
-                int responseCode = connection.getResponseCode();
+                inputStream = result.getBody();
 
                 HttpResponse response = new DefaultHttpResponse(
-                        HttpVersion.HTTP_1_1, HttpResponseStatus.valueOf(responseCode));
+                        HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
                 response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream; charset=UTF-8");
                 response.headers().set(HttpHeaderNames.CACHE_CONTROL, "no-cache");
                 response.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE);
@@ -135,9 +98,6 @@ public class NodeProxyService {
 
                 ctx.write(response);
                 ctx.flush();
-
-                java.io.InputStream inputStream = (responseCode >= 200 && responseCode < 300)
-                        ? connection.getInputStream() : connection.getErrorStream();
 
                 try (BufferedReader br = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
                     String line;
@@ -192,7 +152,12 @@ public class NodeProxyService {
             } catch (Throwable t) {
                 logger.error("虚拟线程异常已兜底: {}", t.getMessage(), t);
             } finally {
-                if (connection != null) connection.disconnect();
+                if (inputStream != null) {
+                    try {
+                        inputStream.close();
+                    } catch (IOException ignored) {
+                    }
+                }
             }
         });
     }
