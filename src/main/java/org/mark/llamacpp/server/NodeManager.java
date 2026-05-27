@@ -39,6 +39,31 @@ public class NodeManager {
 
     private static final NodeManager INSTANCE = new NodeManager();
 
+    /**
+     * SSL 证书验证开关。
+     * 系统属性 {@code ssl.verify} 默认为 {@code true}（启用验证）。
+     * 设为 {@code false} 可禁用验证（仅用于开发/调试），此时会打印 WARN 日志。
+     */
+    private static final boolean SSL_VERIFY_ENABLED;
+    private static volatile boolean sslVerifyDisabledWarned = false;
+
+    static {
+        String prop = System.getProperty("ssl.verify", "true");
+        SSL_VERIFY_ENABLED = !"false".equalsIgnoreCase(prop);
+        if (!SSL_VERIFY_ENABLED) {
+            logger.warn("⚠ SSL 证书验证已禁用 (ssl.verify=false)，存在中间人攻击风险！仅建议在开发/调试环境使用。");
+            sslVerifyDisabledWarned = true;
+        }
+    }
+
+    /**
+     * 返回 SSL 证书验证是否启用。
+     * 供其他组件（RemoteWebSocketClient、AnthropicService 等）调用以决定是否信任所有证书。
+     */
+    public static boolean isSslVerificationEnabled() {
+        return SSL_VERIFY_ENABLED;
+    }
+
     private final HttpClient httpClient;
     private final ConcurrentHashMap<String, LlamaHubNode> nodes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> nodeLocks = new ConcurrentHashMap<>();
@@ -55,31 +80,49 @@ public class NodeManager {
 
     private NodeManager() {
         try {
-            TrustManager[] trustAll = new TrustManager[]{
-                new X509TrustManager() {
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                }
-            };
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAll, new SecureRandom());
-            SSLParameters sslParameters = new SSLParameters();
-            sslParameters.setEndpointIdentificationAlgorithm(null);
-            this.httpClient = HttpClient.newBuilder()
-                .sslContext(sslContext)
-                .sslParameters(sslParameters)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
+            if (SSL_VERIFY_ENABLED) {
+                // 使用系统默认 SSLContext，验证证书
+                this.httpClient = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+            } else {
+                // 信任所有证书（仅开发/调试）
+                TrustManager[] trustAll = new TrustManager[]{
+                    new X509TrustManager() {
+                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    }
+                };
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, trustAll, new SecureRandom());
+                SSLParameters sslParameters = new SSLParameters();
+                sslParameters.setEndpointIdentificationAlgorithm(null);
+                this.httpClient = HttpClient.newBuilder()
+                    .sslContext(sslContext)
+                    .sslParameters(sslParameters)
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to create HttpClient", e);
         }
     }
 
     /**
-     * 配置 HttpsURLConnection 信任所有证书并跳过主机名验证
+     * 配置 HttpsURLConnection 信任所有证书并跳过主机名验证。
+     * 当 ssl.verify=true 时此方法不执行任何操作（使用默认验证）。
+     * 当 ssl.verify=false 时禁用证书验证和主机名验证。
      */
     public static void trustAllCerts(javax.net.ssl.HttpsURLConnection connection) throws Exception {
+        if (SSL_VERIFY_ENABLED) {
+            // 使用默认 SSL 验证，不做任何修改
+            return;
+        }
+        if (!sslVerifyDisabledWarned) {
+            logger.warn("⚠ SSL 证书验证已禁用，正在跳过证书检查。仅建议在开发/调试环境使用。");
+            sslVerifyDisabledWarned = true;
+        }
         TrustManager[] trustAll = new TrustManager[]{
             new X509TrustManager() {
                 public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }

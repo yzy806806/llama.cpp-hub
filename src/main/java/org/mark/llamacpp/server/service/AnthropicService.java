@@ -550,8 +550,10 @@ public class AnthropicService {
                 connection = (HttpURLConnection) url.openConnection();
 
                 if (connection instanceof HttpsURLConnection) {
-                    ((HttpsURLConnection) connection).setSSLSocketFactory(TRUST_ALL_SOCKET_FACTORY);
-                    ((HttpsURLConnection) connection).setHostnameVerifier(TRUST_ALL_HOSTNAME_VERIFIER);
+                    if (!NodeManager.isSslVerificationEnabled()) {
+                        ((HttpsURLConnection) connection).setSSLSocketFactory(TRUST_ALL_SOCKET_FACTORY);
+                        ((HttpsURLConnection) connection).setHostnameVerifier(TRUST_ALL_HOSTNAME_VERIFIER);
+                    }
                 }
 
                 synchronized (this.channelConnectionMap) {

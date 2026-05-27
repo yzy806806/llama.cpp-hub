@@ -3,6 +3,7 @@ package org.mark.llamacpp.server.websocket;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -198,6 +199,11 @@ public class RemoteWebSocketClient {
     }
 
     private static SSLContext createTrustAllSSLContext() throws Exception {
+        if (NodeManager.isSslVerificationEnabled()) {
+            // 使用系统默认 SSLContext，验证证书
+            return SSLContext.getDefault();
+        }
+        // 信任所有证书（仅开发/调试）
         TrustManager[] trustAll = new TrustManager[]{
                 new X509TrustManager() {
                     public X509Certificate[] getAcceptedIssuers() {
