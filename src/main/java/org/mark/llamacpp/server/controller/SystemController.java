@@ -909,11 +909,11 @@ public class SystemController implements BaseController {
 			
 			// 代理配置参数
 			Boolean proxyEnabled = firstBoolean(obj, "proxyEnabled", "proxy_enabled");
-			String proxyType = JsonUtil.getJsonString(obj, "proxyType", "proxy_type", "type");
-			String proxyHost = JsonUtil.getJsonString(obj, "proxyHost", "proxy_host", "host");
+			String proxyType = JsonUtil.getJsonStringAny(obj, null, "proxyType", "proxy_type", "type");
+			String proxyHost = JsonUtil.getJsonStringAny(obj, null, "proxyHost", "proxy_host", "host");
 			Integer proxyPort = firstPort(obj, "proxyPort", "proxy_port", "port");
-			String proxyUsername = JsonUtil.getJsonString(obj, "proxyUsername", "proxy_username", "username");
-			String proxyPassword = JsonUtil.getJsonString(obj, "proxyPassword", "proxy_password", "password");
+			String proxyUsername = JsonUtil.getJsonStringAny(obj, null, "proxyUsername", "proxy_username", "username");
+			String proxyPassword = JsonUtil.getJsonStringAny(obj, null, "proxyPassword", "proxy_password", "password");
 
 			if (ollamaPort == null && lmstudioPort == null && logRequestUrl == null && logRequestHeader == null && logRequestBody == null
 				&& webPort == null && apiKeyEnabled == null && apiKey == null
