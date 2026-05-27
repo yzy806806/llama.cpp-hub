@@ -1,6 +1,10 @@
-# llama.cpp-hub
+# llama.cpp-hub (JIT Branch)
 
-[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
+[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md) | **[JIT Docs](#-jit-auto-loading-this-branch)**
+
+> ⚠️ **This is yzy806806's feature branch**, based on [IIIIIllllIIIIIlllll/llama.cpp-hub](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub).
+>
+> Key additions: **JIT auto-loading**, **proxy support**, **per-request TTL**.
 
 Slapping a web UI on llama.cpp — a graphical interface to wrangle models and llama.cpp. Packed with way too many bells and whistles.
 
@@ -20,6 +24,63 @@ Slapping a web UI on llama.cpp — a graphical interface to wrangle models and l
 - Configure multiple llama.cpp versions, pick which one to load with
 - Set chat templates, customize kwargs
 - Embedding and reranking models need to be manually enabled on the load page
+
+### ⚡ JIT Auto-Loading (this branch)
+
+Like LM Studio's JIT — **models load automatically on API requests**, no manual pre-loading needed.
+
+**Supported API endpoints:**
+- `/v1/chat/completions`
+- `/v1/completions`
+- `/v1/embeddings`
+- `/v1/rerank`
+- `/v1/responses`
+
+**Configuration (`config/application.json`):**
+```json
+{
+  "jit": {
+    "enabled": true,
+    "defaultTtl": 3600,
+    "maxLoadedModels": 2,
+    "loadStrategy": "lru",
+    "allowQueue": true
+  }
+}
+```
+
+**REST API:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/config/jit` | Read current JIT config |
+| `PUT` | `/api/config/jit` | Update JIT config (JSON body, partial update) |
+
+**Per-request TTL:**
+
+Pass `ttl` in the API request body to override `defaultTtl` (seconds):
+
+```json
+{
+  "model": "Qwen3.6-27B",
+  "ttl": 1200,
+  "messages": [...]
+}
+```
+
+**Frontend config:**
+
+WebUI Settings → JIT Config. Toggle on/off, adjust TTL, load strategy, etc.
+
+> ⚠️ Models must have launch parameters configured and set as default in WebUI before JIT can auto-load them.
+
+### Proxy Support (this branch)
+
+HTTP proxy support for accessing HuggingFace and GitHub from restricted networks.
+
+**Config:** WebUI Settings → Proxy, enter proxy URL (e.g. `http://127.0.0.1:7890`).
+
+Covers: HuggingFace model search & download, GitHub Release download, online update checks.
 
 ### The Janky Chat
 

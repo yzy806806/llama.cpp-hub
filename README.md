@@ -4,7 +4,7 @@
 
 > ⚠️ **本分支为 yzy806806 的功能增强分支**，基于主项目 [IIIIIllllIIIIIlllll/llama.cpp-hub](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub) 开发。
 >
-> 主要新增功能：**JIT 自动加载模型**，类似 LM Studio 的使用体验。
+> 主要新增功能：**JIT 自动加载模型**、**代理支持**、**请求级 TTL**、**JIT REST API**。
 
 ---
 
@@ -52,6 +52,29 @@
   }
 }
 ```
+
+**REST API：**
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/config/jit` | 读取当前 JIT 配置 |
+| `PUT` | `/api/config/jit` | 更新 JIT 配置（JSON body，部分更新） |
+
+**请求级 TTL：**
+
+在 API 请求中通过 `ttl` 字段指定本次加载的空闲超时（秒），覆盖全局 `defaultTtl`：
+
+```json
+{
+  "model": "Qwen3.6-27B",
+  "ttl": 1200,
+  "messages": [...]
+}
+```
+
+**前端配置：**
+
+WebUI 设置页 → JIT 配置，支持在线开关 JIT、调整 TTL、加载策略等。
 
 **使用方式：**
 1. 在 WebUI 中配置好模型的启动参数，并**设置为默认配置**
@@ -177,6 +200,19 @@
 ### 在线更新
 
 自动检查 GitHub Release → 下载更新包 → 解压替换。由于使用GitHub的API，因此存在无法访问和403的风险。
+
+---
+
+### 代理支持（本分支新增）
+
+支持通过 HTTP 代理访问 HuggingFace 和 GitHub，适用于国内网络环境。
+
+**配置方式：** WebUI 设置页 → 代理配置，填写代理地址（如 `http://127.0.0.1:7890`）。
+
+支持范围：
+- HuggingFace 模型搜索与下载
+- GitHub Release 下载
+- 在线更新检查
 
 ---
 
