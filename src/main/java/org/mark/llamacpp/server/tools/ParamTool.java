@@ -375,7 +375,7 @@ public class ParamTool {
 			if (requestJson.has("thinking")) {
 				try {
 					JsonElement thinkingEl = requestJson.get("thinking");
-					if (thinkingEl != null && !thinkingEl.isJsonNull() && thinkingEl.isJsonObject()) {
+					if (thinkingEl != null && !thinkingEl.isJsonNull() && thinkingEl.isJsonPrimitive() && thinkingEl.getAsJsonPrimitive().isNumber()) {
 						JsonObject thinkingObj = thinkingEl.getAsJsonObject();
 						String typeVal = "";
 						if (thinkingObj.has("type")) {
@@ -400,13 +400,11 @@ public class ParamTool {
 			if(requestJson.has("thinking_budget_tokens")) {
 				try {
 					JsonElement thinkingEl = requestJson.get("thinking_budget_tokens");
-					if (thinkingEl != null && !thinkingEl.isJsonNull() && thinkingEl.isJsonObject()) {
-						Integer thinkingObj = thinkingEl.getAsInt();
-						if(thinkingObj != null) {
-							needInjection = true;
-							if(thinkingObj > 0) {
-								enableValueStr = true;	
-							}
+					if (thinkingEl != null && !thinkingEl.isJsonNull() && thinkingEl.isJsonPrimitive() && thinkingEl.getAsJsonPrimitive().isNumber()) {
+						int thinkingValue = thinkingEl.getAsInt();
+						needInjection = true;
+						if(thinkingValue > 0) {
+							enableValueStr = true;	
 						}
 					}
 				} catch (Exception ignore) {

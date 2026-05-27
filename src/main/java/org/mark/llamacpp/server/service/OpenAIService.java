@@ -1,44 +1,8 @@
 package org.mark.llamacpp.server.service;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URI;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
-import org.mark.llamacpp.gguf.GGUFModel;
-import org.mark.llamacpp.server.LlamaCppProcess;
-import org.mark.llamacpp.server.LlamaHubNode;
-import org.mark.llamacpp.server.LlamaServer;
-import org.mark.llamacpp.server.LlamaServerManager;
-import org.mark.llamacpp.server.ConfigManager;
-import org.mark.llamacpp.server.NodeManager;
-import org.mark.llamacpp.server.struct.ActiveRequest;
-import org.mark.llamacpp.server.struct.Timing;
-import org.mark.llamacpp.server.tools.JsonUtil;
-import org.mark.llamacpp.server.tools.ParamTool;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -61,6 +25,41 @@ import io.netty.handler.codec.http.multipart.DefaultHttpDataFactory;
 import io.netty.handler.codec.http.multipart.HttpPostRequestDecoder;
 import io.netty.handler.codec.http.multipart.InterfaceHttpData;
 import io.netty.util.CharsetUtil;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.mark.llamacpp.gguf.GGUFModel;
+import org.mark.llamacpp.server.ConfigManager;
+import org.mark.llamacpp.server.LlamaCppProcess;
+import org.mark.llamacpp.server.LlamaHubNode;
+import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.LlamaServerManager;
+import org.mark.llamacpp.server.NodeManager;
+import org.mark.llamacpp.server.struct.ActiveRequest;
+import org.mark.llamacpp.server.struct.Timing;
+import org.mark.llamacpp.server.tools.JsonUtil;
+import org.mark.llamacpp.server.tools.ParamTool;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 	处理openai api请求的服务。
@@ -80,9 +79,11 @@ public class OpenAIService {
 	private static final ExecutorService worker = Executors.newVirtualThreadPerTaskExecutor();
 	
 	/**
-	 * 	给响应头做时间转换
+	 * 	给响应头做时间转换（DateTimeFormatter是线程安全的）
 	 */
-	private SimpleDateFormat sdf = new SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH);
+	private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter
+			.ofPattern("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
+			.withZone(ZoneId.of("GMT"));
 	
 	/**
 	 * 	集霸矛！
@@ -1142,7 +1143,7 @@ public class OpenAIService {
 		//response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");
 		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 		response.headers().set(HttpHeaderNames.CONNECTION, "alive");
-		response.headers().set(HttpHeaderNames.DATE, this.sdf.format(new Date()));
+		response.headers().set(HttpHeaderNames.DATE, DATE_FORMATTER.format(java.time.Instant.now()));
 		
 		response.content().writeBytes(content);
 
@@ -1213,7 +1214,7 @@ public class OpenAIService {
 		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_METHODS, "GET, POST, PUT, DELETE, OPTIONS");
 		response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "*");
 		response.headers().set(HttpHeaderNames.CONNECTION, "alive");
-		response.headers().set(HttpHeaderNames.DATE, this.sdf.format(new Date()));
+		response.headers().set(HttpHeaderNames.DATE, DATE_FORMATTER.format(java.time.Instant.now()));
 		
 		
 		response.content().writeBytes(content);
