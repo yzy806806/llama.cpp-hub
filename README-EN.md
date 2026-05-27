@@ -103,9 +103,8 @@ Use it to test whether your model can actually execute tool calls. The MCP serve
 
 | Key | Tools |
 |-----|-------|
-| `llama_hub_info` | 10 |
+| `llama_hub_info` | 7 |
 | `llama_hub_image` | 1 |
-| `llama_hub_context` | 1 |
 | `llama_hub_file` | 1 |
 
 These tools aren't very useful. Their purpose is questionable. Just pretend they don't exist.

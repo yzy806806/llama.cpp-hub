@@ -103,9 +103,8 @@
 
 | Key | 工具数 |
 |-----|--------|
-| `llama_hub_info` | 10 |
+| `llama_hub_info` | 7 |
 | `llama_hub_image` | 1 |
-| `llama_hub_context` | 1 |
 | `llama_hub_file` | 1 |
 
 这些工具用处不大，意义不明，一般来说直接无视。

@@ -14,11 +14,7 @@ import org.mark.test.mcp.tools.GetModelPathTool;
 import org.mark.test.mcp.tools.GetModelsTool;
 import org.mark.test.mcp.tools.GetParamInfoTool;
 import org.mark.test.mcp.tools.ReadStaticImageTool;
-import org.mark.test.mcp.tools.context.ContextSummaryTool;
-import org.mark.test.mcp.tools.experience.ExperienceGetTool;
-import org.mark.test.mcp.tools.experience.ExperienceListTool;
-import org.mark.test.mcp.tools.experience.ExperienceLogTool;
-import org.mark.test.mcp.tools.experience.ExperienceMatchTool;
+import org.mark.test.mcp.tools.others.ApplicationConfigTool;
 import org.mark.test.mcp.tools.file.WriteTextFileTool;
 import org.mark.test.mcp.tools.others.GetTimeTool;
 import org.slf4j.Logger;
@@ -48,9 +44,6 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 	
 	
 	private static final String IMAGE_SERVICE_KEY = "llama_hub_image";
-	
-	
-	private static final String CONTEXT_SERVICE_KEY = "llama_hub_context";
 	
 	
 	private static final String FILE_SERVICE_KEY = "llama_hub_file";
@@ -97,13 +90,7 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetLlamaCppInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetParamInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetMcpServiceInfoTool());
-		// 上下文相关。
-		this.registerTool(CONTEXT_SERVICE_KEY, new ContextSummaryTool());
-		// 自定义的‘经验’工具。
-		this.registerTool(DEFAULT_SERVICE_KEY, new ExperienceLogTool());
-		this.registerTool(DEFAULT_SERVICE_KEY, new ExperienceListTool());
-		this.registerTool(DEFAULT_SERVICE_KEY, new ExperienceGetTool());
-		this.registerTool(DEFAULT_SERVICE_KEY, new ExperienceMatchTool());
+		this.registerTool(DEFAULT_SERVICE_KEY, new ApplicationConfigTool());
 		
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
 		

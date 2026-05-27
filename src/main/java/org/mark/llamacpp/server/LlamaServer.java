@@ -276,20 +276,15 @@ public class LlamaServer {
 	 * 	默认端口：OpenAI + 程序主要业务
 	 */
 	private static final int DEFAULT_WEB_PORT = 8080;
-
+	
 	private static final int MAX_HTTP_CONTENT_LENGTH = 16 * 1024 * 1024;
 	
-	/**
-	 * 	默认端口：Anthropic API
-	 */
-	private static final int DEFAULT_ANTHROPIC_PORT = 8070;
-
 	private static final int DEFAULT_MCP_SERVER_PORT = 8075;
 
 	/**
 	 * 默认下载目录
 	 */
-	private static final String DEFAULT_DOWNLOAD_DIRECTORY = Paths.get(System.getProperty("user.dir"), "downloads").toString();
+	private static final String DEFAULT_DOWNLOAD_DIRECTORY = Paths.get(System.getProperty("user.dir"), "models").toString();
 	
 	/**
 	 * 	默认模型目录
@@ -318,8 +313,6 @@ public class LlamaServer {
 	//##############################################################################################################################
 
 	private static int webPort = DEFAULT_WEB_PORT;
-	
-	private static int anthropicPort = DEFAULT_ANTHROPIC_PORT;
 	
 	private static String downloadDirectory = DEFAULT_DOWNLOAD_DIRECTORY;
 
@@ -470,9 +463,6 @@ public class LlamaServer {
 			JsonObject server = root.getAsJsonObject("server");
 			if (server.has("webPort")) {
 				webPort = server.get("webPort").getAsInt();
-			}
-			if (server.has("anthropicPort")) {
-				anthropicPort = server.get("anthropicPort").getAsInt();
 			}
 		}
 
@@ -632,7 +622,6 @@ public class LlamaServer {
 
 				JsonObject server = new JsonObject();
 				server.addProperty("webPort", webPort);
-				server.addProperty("anthropicPort", anthropicPort);
 				root.add("server", server);
 	
 				JsonObject download = new JsonObject();
@@ -748,23 +737,10 @@ public class LlamaServer {
         }
     }
     
-    public static int getAnthropicPort() {
-        return anthropicPort;
-    }
-    
-    public static void setAnthropicPort(int anthropicPort) {
-        if (anthropicPort > 0 && anthropicPort <= 65535) {
-            LlamaServer.anthropicPort = anthropicPort;
-        }
-    }
-    
-    public static void updateServerPorts(Integer webPort, Integer anthropicPort) {
+    public static void updateServerPorts(Integer webPort) {
         synchronized (APPLICATION_CONFIG_LOCK) {
             if (webPort != null && webPort > 0 && webPort <= 65535) {
                 LlamaServer.webPort = webPort;
-            }
-            if (anthropicPort != null && anthropicPort > 0 && anthropicPort <= 65535) {
-                LlamaServer.anthropicPort = anthropicPort;
             }
             saveApplicationConfig();
         }
