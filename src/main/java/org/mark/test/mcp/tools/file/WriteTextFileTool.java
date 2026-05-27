@@ -19,15 +19,22 @@ import com.google.gson.JsonObject;
 
 /**
  * 	写文件的小工具。
+ *
+ * 	安全防护:
+ * 	- 所有写入路径必须在 fallbackRootPath（user.dir）范围内
+ * 	- 禁止写入敏感系统目录（/etc, /proc, /sys, ~/.ssh 等）
+ * 	- 防止路径遍历攻击（../../etc/crontab）
  */
 public class WriteTextFileTool implements IMCPTool {
 
 	private final Path fallbackRootPath;
+	private final Path homeDirPath;
 	private final boolean windowsRuntime;
 
 	public WriteTextFileTool() {
 		this.fallbackRootPath = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
 		this.windowsRuntime = File.separatorChar == '\\';
+		this.homeDirPath = Paths.get(System.getProperty("user.home")).toAbsolutePath().normalize();
 	}
 
 	@Override
@@ -53,7 +60,7 @@ public class WriteTextFileTool implements IMCPTool {
 		return new McpToolInputSchema()
 				.addProperty("absolutePath", "string",
 						"目标文件路径。支持 Windows/Linux 绝对路径；如果不确定目录结构，也可以传相对路径，工具会默认保存到根目录 "
-								+ this.fallbackRootPath + " 下。例如 README.md、output/result.txt、C:\\temp\\note.md、/tmp/note.md",
+								+ this.fallbackRootPath + " 下。例如 README.md、output/result.txt、C:\\temp\\note.md",
 						true)
 				.addProperty("content", "string", "要写入的文本内容（UTF-8）", true).addProperty("append", "boolean", "是否追加写入，默认false", false)
 				.addProperty("createParentDirectories", "boolean", "是否自动创建父目录，默认true；路径中有不存在的文件夹时建议保持默认值", false);
@@ -70,6 +77,7 @@ public class WriteTextFileTool implements IMCPTool {
 		boolean createParentDirectories = this.getBoolean(arguments, "createParentDirectories", true);
 		try {
 			Path filePath = this.resolveFilePath(absolutePathText);
+			this.checkPathAllowed(filePath);
 			Path parent = filePath.getParent();
 			if (parent != null && createParentDirectories) {
 				Files.createDirectories(parent);
@@ -96,23 +104,33 @@ public class WriteTextFileTool implements IMCPTool {
 	}
 
 	private Path resolveFilePath(String pathText) {
-		if (pathText == null || pathText.isBlank()) {
+		if (pathText == null || pathText.trim().isEmpty()) {
 			throw new IllegalArgumentException("absolutePath不能为空。如果你不知道保存到哪里，请至少提供文件名，工具会默认保存到根目录: "
 					+ this.fallbackRootPath);
 		}
 		String normalizedText = pathText.trim();
 		if (this.isRuntimeAbsolutePath(normalizedText)) {
-			return Paths.get(normalizedText).toAbsolutePath().normalize();
+			Path resolved = Paths.get(normalizedText).toAbsolutePath().normalize();
+			// Absolute path: still must be within allowed root
+			if (!resolved.startsWith(this.fallbackRootPath)) {
+				throw new SecurityException("写入被拒绝: 绝对路径 " + normalizedText + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+			}
+			return resolved;
 		}
 		if (this.looksLikeForeignAbsolutePath(normalizedText)) {
 			throw new IllegalArgumentException("当前系统无法解析该绝对路径: " + normalizedText + "，请改用当前系统的绝对路径，或传相对路径保存到根目录 "
 					+ this.fallbackRootPath);
 		}
-		return this.fallbackRootPath.resolve(normalizedText).toAbsolutePath().normalize();
+		Path resolved = this.fallbackRootPath.resolve(normalizedText).toAbsolutePath().normalize();
+		// Containment check: resolved path must stay within fallbackRootPath
+		if (!resolved.startsWith(this.fallbackRootPath)) {
+			throw new IllegalArgumentException("路径越界: " + normalizedText + " 超出了允许的根目录范围 " + this.fallbackRootPath);
+		}
+		return resolved;
 	}
 
 	private boolean isRuntimeAbsolutePath(String pathText) {
-		if (pathText == null || pathText.isBlank()) {
+		if (pathText == null || pathText.trim().isEmpty()) {
 			return false;
 		}
 		if (this.windowsRuntime) {
@@ -122,7 +140,7 @@ public class WriteTextFileTool implements IMCPTool {
 	}
 
 	private boolean looksLikeForeignAbsolutePath(String pathText) {
-		if (pathText == null || pathText.isBlank()) {
+		if (pathText == null || pathText.trim().isEmpty()) {
 			return false;
 		}
 		if (this.windowsRuntime) {
@@ -151,7 +169,7 @@ public class WriteTextFileTool implements IMCPTool {
 	}
 
 	private boolean getBoolean(JsonObject arguments, String key, boolean fallback) {
-		if (arguments == null || key == null || key.isBlank() || !arguments.has(key) || arguments.get(key).isJsonNull()) {
+		if (arguments == null || key == null || key.trim().isEmpty() || !arguments.has(key) || arguments.get(key).isJsonNull()) {
 			return fallback;
 		}
 		try {
@@ -166,5 +184,39 @@ public class WriteTextFileTool implements IMCPTool {
 		response.put("success", false);
 		response.put("error", message == null ? "" : message);
 		return response;
+	}
+
+	/**
+	 * 检查解析后的路径是否指向敏感系统目录（防御性深度检查）。
+	 * 即使 startsWith(fallbackRootPath) 通过，也不允许写入关键系统路径。
+	 */
+	private boolean isSensitiveSystemPath(Path filePath) {
+		String path = filePath.toAbsolutePath().normalize().toString();
+		if (path.startsWith("/etc") || path.startsWith("/proc") || path.startsWith("/sys")
+				|| path.startsWith("/boot") || path.startsWith("/dev") || path.startsWith("/run")) {
+			return true;
+		}
+		if (this.homeDirPath != null) {
+			Path sshDir = this.homeDirPath.resolve(".ssh").normalize();
+			if (filePath.startsWith(sshDir)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * 安全检查：验证路径在允许范围内且不是敏感系统路径。
+	 * 在 execute() 中文件写入前调用。
+	 */
+	private void checkPathAllowed(Path filePath) {
+		// Primary check: must be within allowed root
+		if (!filePath.startsWith(this.fallbackRootPath)) {
+			throw new SecurityException("写入被拒绝: 路径 " + filePath + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+		}
+		// Defense-in-depth: block sensitive system directories
+		if (isSensitiveSystemPath(filePath)) {
+			throw new SecurityException("写入被拒绝: 不允许写入系统敏感路径 " + filePath);
+		}
 	}
 }
