@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -22,8 +23,9 @@ import com.google.gson.JsonObject;
  *
  * 	安全防护:
  * 	- 所有写入路径必须在 fallbackRootPath（user.dir）范围内
- * 	- 禁止写入敏感系统目录（/etc, /proc, /sys, ~/.ssh 等）
+ * 	- 禁止写入敏感系统目录（Unix: /etc, /proc, /sys 等; Windows: \Windows\System32 等）
  * 	- 防止路径遍历攻击（../../etc/crontab）
+ * 	- 防止符号链接绕过（normalize() 不解析符号链接，使用 toRealPath() 二次验证）
  */
 public class WriteTextFileTool implements IMCPTool {
 
@@ -115,6 +117,8 @@ public class WriteTextFileTool implements IMCPTool {
 			if (!resolved.startsWith(this.fallbackRootPath)) {
 				throw new SecurityException("写入被拒绝: 绝对路径 " + normalizedText + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
 			}
+			// Symlink resolution: resolve symbolic links and re-validate containment
+			this.validateSymlinkContainment(resolved);
 			return resolved;
 		}
 		if (this.looksLikeForeignAbsolutePath(normalizedText)) {
@@ -126,7 +130,38 @@ public class WriteTextFileTool implements IMCPTool {
 		if (!resolved.startsWith(this.fallbackRootPath)) {
 			throw new IllegalArgumentException("路径越界: " + normalizedText + " 超出了允许的根目录范围 " + this.fallbackRootPath);
 		}
+		// Symlink resolution: resolve symbolic links and re-validate containment
+		this.validateSymlinkContainment(resolved);
 		return resolved;
+	}
+
+	/**
+	 * 解析符号链接并重新验证路径包含性。
+	 * normalize() 不解析符号链接，攻击者可在允许目录内创建符号链接指向外部敏感文件。
+	 * 对已存在的路径使用 toRealPath() 解析；对新文件（尚不存在）使用父目录的 toRealPath()。
+	 */
+	private void validateSymlinkContainment(Path resolved) {
+		try {
+			if (Files.exists(resolved, LinkOption.NOFOLLOW_LINKS)) {
+				// Path already exists: resolve the full real path
+				Path realPath = resolved.toRealPath();
+				if (!realPath.startsWith(this.fallbackRootPath)) {
+					throw new SecurityException("写入被拒绝: 符号链接解析后路径 " + realPath + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+				}
+			} else {
+				// New file: resolve the nearest existing parent directory
+				Path parent = resolved.getParent();
+				if (parent != null) {
+					Path realParent = parent.toRealPath();
+					if (!realParent.startsWith(this.fallbackRootPath)) {
+						throw new SecurityException("写入被拒绝: 父目录符号链接解析后路径 " + realParent + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+					}
+				}
+			}
+		} catch (IOException e) {
+			// If toRealPath() fails (e.g. broken symlink, permission denied), block the write
+			throw new SecurityException("写入被拒绝: 无法验证路径安全性 (" + e.getMessage() + "): " + resolved);
+		}
 	}
 
 	private boolean isRuntimeAbsolutePath(String pathText) {
@@ -189,12 +224,24 @@ public class WriteTextFileTool implements IMCPTool {
 	/**
 	 * 检查解析后的路径是否指向敏感系统目录（防御性深度检查）。
 	 * 即使 startsWith(fallbackRootPath) 通过，也不允许写入关键系统路径。
+	 * 覆盖 Unix 和 Windows 系统目录。
 	 */
 	private boolean isSensitiveSystemPath(Path filePath) {
 		String path = filePath.toAbsolutePath().normalize().toString();
+		// Unix sensitive paths
 		if (path.startsWith("/etc") || path.startsWith("/proc") || path.startsWith("/sys")
 				|| path.startsWith("/boot") || path.startsWith("/dev") || path.startsWith("/run")) {
 			return true;
+		}
+		// Windows sensitive paths
+		if (this.windowsRuntime) {
+			String upper = path.toUpperCase();
+			if (upper.contains("\\WINDOWS\\SYSTEM32") || upper.contains("\\WINDOWS\\SYSTEM")
+					|| upper.contains("\\WINDOWS\\SYSWOW64") || upper.contains("\\WINDOWS\\SYSVOL")
+					|| upper.contains("\\PROGRAMDATA") || upper.contains("\\PROGRAM FILES\\")
+					|| upper.contains("\\PROGRAM FILES (X86)\\")) {
+				return true;
+			}
 		}
 		if (this.homeDirPath != null) {
 			Path sshDir = this.homeDirPath.resolve(".ssh").normalize();
