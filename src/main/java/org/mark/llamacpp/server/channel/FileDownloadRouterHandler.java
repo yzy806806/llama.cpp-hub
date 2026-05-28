@@ -629,8 +629,11 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 				throw new IllegalArgumentException("文件夹名不合法");
 			}
 
-			Path base = Paths.get(path);
-			Path targetDir = base.resolve(targetFolder);
+			Path base = Paths.get(path).toAbsolutePath().normalize();
+			Path targetDir = base.resolve(targetFolder).toAbsolutePath().normalize();
+			if (!targetDir.startsWith(base)) {
+				throw new SecurityException("路径遍历被拒绝: " + targetFolder + " 超出了允许的目录范围");
+			}
 			Files.createDirectories(targetDir);
 
 			Path targetFile = targetDir.resolve(selectedName).toAbsolutePath().normalize();
@@ -753,9 +756,15 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 
 			Path llamacppDir = Paths.get("llamacpp").toAbsolutePath().normalize();
 			Path backendDir = llamacppDir.resolve(baseName).toAbsolutePath().normalize();
+			if (!backendDir.startsWith(llamacppDir)) {
+				throw new SecurityException("路径遍历被拒绝: " + baseName + " 超出了llamacpp目录范围");
+			}
 			Files.createDirectories(backendDir);
 
 			Path targetFile = backendDir.resolve(selectedName).toAbsolutePath().normalize();
+			if (!targetFile.startsWith(llamacppDir)) {
+				throw new SecurityException("路径遍历被拒绝: " + selectedName + " 超出了llamacpp目录范围");
+			}
 			String lockKey = targetFile.toString();
 			ReentrantLock lock = downloadLocks.computeIfAbsent(lockKey, k -> new ReentrantLock());
 			lock.lock();

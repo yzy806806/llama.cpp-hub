@@ -80,6 +80,23 @@ public class ReadStaticImageTool implements IMCPTool {
 			result.addProperty("error", "必须传入绝对路径: " + absolutePathText);
 			return result;
 		}
+		// Path traversal guard: restrict to project directory
+		Path allowedBase = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+		if (!absolutePath.startsWith(allowedBase)) {
+			result.addProperty("success", false);
+			result.addProperty("error", "读取被拒绝: 路径 " + absolutePathText + " 不在允许的目录 " + allowedBase + " 范围内");
+			return result;
+		}
+		// Extension whitelist: only allow image files
+		String fileNameLower = absolutePath.getFileName().toString().toLowerCase();
+		if (!fileNameLower.endsWith(".png") && !fileNameLower.endsWith(".jpg")
+				&& !fileNameLower.endsWith(".jpeg") && !fileNameLower.endsWith(".gif")
+				&& !fileNameLower.endsWith(".webp") && !fileNameLower.endsWith(".bmp")
+				&& !fileNameLower.endsWith(".svg")) {
+			result.addProperty("success", false);
+			result.addProperty("error", "读取被拒绝: 仅允许图片文件（.png/.jpg/.jpeg/.gif/.webp/.bmp/.svg）");
+			return result;
+		}
 		if (!Files.exists(absolutePath) || !Files.isRegularFile(absolutePath)) {
 			result.addProperty("success", false);
 			result.addProperty("error", "图片文件不存在: " + absolutePath);

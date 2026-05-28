@@ -58,7 +58,12 @@ public class ApplicationConfigTool implements IMCPTool {
 			
 			try {
 				Path source = Paths.get("config/application.json");
-				Path target = Paths.get("config", backupName);
+				Path target = Paths.get("config", backupName).toAbsolutePath().normalize();
+				Path configDir = Paths.get("config").toAbsolutePath().normalize();
+				if (!target.startsWith(configDir)) {
+					message.addText("Error: backup name contains invalid path traversal.");
+					return message;
+				}
 				
 				if (!Files.exists(source)) {
 					message.addText("Error: application.json does not exist. Cannot create backup.");
