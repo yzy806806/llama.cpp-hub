@@ -389,12 +389,12 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 
 			// llama.cpp 下载：特殊处理
 			if ("llamacpp".equalsIgnoreCase(path)) {
-				var result = createAndStartLlamaCppTask(url, fileName);
+				Map<String, Object> result = createAndStartLlamaCppTask(url, fileName);
 				LlamaServer.sendJsonResponse(ctx, result);
 				return;
 			}
 
-			var result = createAndStartTask(url, LlamaServer.getDownloadDirectory(), fileName, folderName);
+			Map<String, Object> result = createAndStartTask(url, LlamaServer.getDownloadDirectory(), fileName, folderName);
 			LlamaServer.sendJsonResponse(ctx, result);
 		} catch (Exception e) {
 			e.printStackTrace();
@@ -807,7 +807,7 @@ public class FileDownloadRouterHandler extends SimpleChannelInboundHandler<FullH
 
 	private Map<String, Object> toTaskView(DownloadTaskInfo task) {
 		Map<String, Object> view = new HashMap<>();
-		Path target = Path.of(task.getTargetPath());
+		Path target = Paths.get(task.getTargetPath());
 		String fileName = target.getFileName() == null ? "" : target.getFileName().toString();
 		String parentPath = target.getParent() == null ? "" : target.getParent().toString();
 		view.put("taskId", task.getTaskId());
