@@ -1847,6 +1847,122 @@
         loadNodes();
         loadLlamaCppList();
         loadModelPathList();
+        loadProxyConfig();
+    }
+
+    // --- HTTP Proxy ---
+    function toggleProxySection() {
+        const content = byId('proxySectionContent');
+        const chevron = byId('proxySectionChevron');
+        if (content) {
+            const collapsed = content.style.display === 'none';
+            content.style.display = collapsed ? '' : 'none';
+            if (chevron) chevron.style.transform = collapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+    }
+
+    function loadProxyConfig() {
+        fetch('/api/proxy/get')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    const d = data.data;
+                    const toggle = byId('toggleProxyEnabled');
+                    const host = byId('proxyHostInput');
+                    const port = byId('proxyPortInput');
+                    const username = byId('proxyUsernameInput');
+                    if (toggle) toggle.checked = !!d.enabled;
+                    if (host) host.value = d.host || '';
+                    if (port) port.value = d.port || '';
+                    if (username) username.value = '';
+                    const pw = byId('proxyPasswordInput');
+                    if (pw) pw.value = '';
+                }
+            })
+            .catch(error => {
+                console.error(t('log.proxy.load_error', '加载代理配置出错:'), error);
+            });
+    }
+
+    function saveProxyConfig() {
+        const toggle = byId('toggleProxyEnabled');
+        const host = byId('proxyHostInput');
+        const port = byId('proxyPortInput');
+        const username = byId('proxyUsernameInput');
+        const password = byId('proxyPasswordInput');
+
+        const payload = {
+            enabled: toggle ? toggle.checked : false,
+            host: host ? host.value.trim() : '',
+            port: port ? parseInt(port.value, 10) || 0 : 0,
+            username: username ? username.value.trim() : '',
+            password: password ? password.value : ''
+        };
+
+        fetch('/api/proxy/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                toast(t('common.save_success', '保存成功'), data.data.message || t('common.saved', '已保存'), 'success');
+            } else {
+                toast(t('toast.error', '错误'), data.error || t('common.save_failed', '保存失败'), 'error');
+            }
+        })
+        .catch(error => {
+            console.error(t('log.proxy.save_error', '保存代理配置出错:'), error);
+            toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        });
+    }
+
+    function testProxyConnection() {
+        const host = byId('proxyHostInput');
+        const port = byId('proxyPortInput');
+        const username = byId('proxyUsernameInput');
+        const password = byId('proxyPasswordInput');
+
+        const payload = {
+            host: host ? host.value.trim() : '',
+            port: port ? parseInt(port.value, 10) || 0 : 0,
+            username: username ? username.value.trim() : '',
+            password: password ? password.value : ''
+        };
+
+        if (!payload.host) {
+            toast(t('toast.error', '错误'), t('page.settings.server.proxy_host_required', '代理主机不能为空'), 'error');
+            return;
+        }
+        if (payload.port <= 0 || payload.port > 65535) {
+            toast(t('toast.error', '错误'), t('page.settings.server.proxy_port_invalid', '代理端口必须在 1-65535 之间'), 'error');
+            return;
+        }
+
+        toast(t('page.settings.server.proxy_testing', '测试中'), t('page.settings.server.proxy_testing_desc', '正在测试代理连接...'), 'info');
+
+        fetch('/api/proxy/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data) {
+                if (data.data.success) {
+                    toast(t('page.settings.server.proxy_test_success', '代理测试成功'), data.data.message || '', 'success');
+                } else {
+                    toast(t('page.settings.server.proxy_test_failed', '代理测试失败'), data.data.message || '', 'error');
+                }
+            } else {
+                toast(t('toast.error', '错误'), data.error || t('common.test_failed', '测试失败'), 'error');
+            }
+        })
+        .catch(error => {
+            console.error(t('log.proxy.test_error', '测试代理连接出错:'), error);
+            toast(t('toast.error', '错误'), t('common.network_request_failed', '网络请求失败'), 'error');
+        });
     }
 
     document.addEventListener('DOMContentLoaded', function () {
@@ -1872,4 +1988,8 @@
     window.removeModelPath = removeModelPath;
     window.openAddModelPathModal = openAddModelPathModal;
     window.toggleModelPathSection = toggleModelPathSection;
+    window.toggleProxySection = toggleProxySection;
+    window.loadProxyConfig = loadProxyConfig;
+    window.saveProxyConfig = saveProxyConfig;
+    window.testProxyConnection = testProxyConnection;
 })();

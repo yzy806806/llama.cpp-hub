@@ -15,6 +15,10 @@ import io.netty.util.concurrent.GenericFutureListener;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+
+import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.struct.ProxyConfigData;
+
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
@@ -133,6 +137,34 @@ public final class NettyHttpUtils {
             this.originalUrl = url;
         }
 
+        /**
+         * Resolves the effective proxy configuration.
+         * If no proxy is explicitly set, attempts to load from global config.
+         */
+        private ProxyConfig resolveProxy() {
+            if (proxyConfig != null) {
+                return proxyConfig;
+            }
+            try {
+                ProxyConfigData globalCfg = LlamaServer.getProxyConfig();
+                if (globalCfg != null && globalCfg.isEnabled() && globalCfg.getHost() != null && !globalCfg.getHost().trim().isEmpty()) {
+                    int port = globalCfg.getPort();
+                    if (port > 0) {
+                        String user = globalCfg.getUsername();
+                        if (user != null && !user.isEmpty()) {
+                            return ProxyConfig.http(globalCfg.getHost().trim(), port, user, globalCfg.getPassword() != null ? globalCfg.getPassword() : "");
+                        } else {
+                            return ProxyConfig.http(globalCfg.getHost().trim(), port);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[NettyHttpUtils] Failed to resolve proxy config: " + e.getMessage());
+                e.printStackTrace();
+            }
+            return null;
+        }
+
         public Request method(String method) {
             this.method = method.toUpperCase();
             return this;
@@ -234,6 +266,14 @@ public final class NettyHttpUtils {
         }
 
         public CompletableFuture<Response> executeAsync() {
+            // Apply global proxy config if not explicitly set
+            ProxyConfig effectiveProxy = resolveProxy();
+            if (effectiveProxy != null && proxyConfig == null) {
+                proxyConfig = effectiveProxy;
+                System.err.println("[NettyHttpUtils] Proxy applied: " + effectiveProxy.getHost() + ":" + effectiveProxy.getPort());
+            } else if (proxyConfig == null) {
+                System.err.println("[NettyHttpUtils] No proxy configured (effectiveProxy=" + effectiveProxy + ")");
+            }
             CompletableFuture<Response> root = new CompletableFuture<>();
             REDIRECT_EXECUTOR.execute(() -> {
                 try {
@@ -799,6 +839,34 @@ public final class NettyHttpUtils {
             return this;
         }
 
+        /**
+         * Resolves the effective proxy configuration.
+         * If no proxy is explicitly set, attempts to load from global config.
+         */
+        private ProxyConfig resolveProxy() {
+            if (proxyConfig != null) {
+                return proxyConfig;
+            }
+            try {
+                ProxyConfigData globalCfg = LlamaServer.getProxyConfig();
+                if (globalCfg != null && globalCfg.isEnabled() && globalCfg.getHost() != null && !globalCfg.getHost().trim().isEmpty()) {
+                    int port = globalCfg.getPort();
+                    if (port > 0) {
+                        String user = globalCfg.getUsername();
+                        if (user != null && !user.isEmpty()) {
+                            return ProxyConfig.http(globalCfg.getHost().trim(), port, user, globalCfg.getPassword() != null ? globalCfg.getPassword() : "");
+                        } else {
+                            return ProxyConfig.http(globalCfg.getHost().trim(), port);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("[NettyHttpUtils] Failed to resolve proxy config: " + e.getMessage());
+                e.printStackTrace();
+            }
+            return null;
+        }
+
         public void execute() throws IOException {
             try {
                 executeAsync().get(Math.max(connectTimeout.toMillis() + readTimeout.toMillis(), 600_000), TimeUnit.MILLISECONDS);
@@ -817,6 +885,11 @@ public final class NettyHttpUtils {
         }
 
         public CompletableFuture<Void> executeAsync() {
+            // Apply global proxy config if not explicitly set
+            ProxyConfig effectiveProxy = resolveProxy();
+            if (effectiveProxy != null && proxyConfig == null) {
+                proxyConfig = effectiveProxy;
+            }
             CompletableFuture<Void> future = new CompletableFuture<>();
 
             if (targetFile == null) {

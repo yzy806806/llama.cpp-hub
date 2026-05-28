@@ -1,17 +1,16 @@
 package org.mark.llamacpp.update;
 
 import java.io.FileWriter;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
+import org.mark.llamacpp.crawler.NettyHttpUtils;
+import org.mark.llamacpp.server.BuildInfo;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.mark.llamacpp.server.BuildInfo;
 
 public class GitHubTagFetcherNative {
 
@@ -21,11 +20,9 @@ public class GitHubTagFetcherNative {
 	private static final String CURRENT_TAG = BuildInfo.getTag();
 
 	private final Gson gson;
-	private final HttpClient client;
 
 	public GitHubTagFetcherNative() {
 		this.gson = new GsonBuilder().setPrettyPrinting().create();
-		this.client = HttpClient.newHttpClient();
 	}
 
 	public static void main(String[] args) {
@@ -36,19 +33,17 @@ public class GitHubTagFetcherNative {
 
 	public CheckResult check() {
 		try {
-			HttpRequest request = HttpRequest.newBuilder()
-					.uri(URI.create(API_URL))
+			NettyHttpUtils.Response response = NettyHttpUtils.request(API_URL)
 					.header("Accept", "application/vnd.github+json")
-					.GET()
-					.build();
-
-			HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+					.connectTimeout(15)
+					.readTimeout(30)
+					.execute();
 
 			if (response.statusCode() != 200) {
 				return CheckResult.error("HTTP " + response.statusCode());
 			}
 
-			String body = response.body();
+			String body = response.bodyAsString();
 			ReleasesStruct release = gson.fromJson(body, ReleasesStruct.class);
 
 			saveToCache(release);
@@ -58,6 +53,8 @@ public class GitHubTagFetcherNative {
 
 			return CheckResult.ok(release, hasUpdate);
 
+		} catch (IOException e) {
+			return CheckResult.error(e.getMessage());
 		} catch (Exception e) {
 			return CheckResult.error(e.getMessage());
 		}

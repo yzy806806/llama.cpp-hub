@@ -519,8 +519,6 @@ public final class HuggingFaceSearcher {
                 .header("User-Agent", UserAgentUtils.random())
                 .header("Accept", accept == null || accept.isBlank() ? "*/*" : accept)
                 .readTimeout(timeout);
-                //.proxy(ProxyConfig.http("10.8.0.18", 8888, "admin", "123456")); // TODO: remove before production
-                //.proxy(ProxyConfig.http("127.0.0.1", 51213)); // TODO: remove before production
 
         String token = System.getenv("HF_TOKEN");
         if (token != null && !token.isBlank())
