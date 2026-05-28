@@ -740,7 +740,7 @@ async function fetchDetailReadme(repoId) {
     if (hfDetailReadmeAbort) hfDetailReadmeAbort.abort();
     const controller = new AbortController();
     hfDetailReadmeAbort = controller;
-    const baseEl = document.getElementById('hfBase');
+    const baseEl = document.getElementById('hfBaseSelect');
     const base = baseEl ? String(baseEl.value || 'mirror') : 'mirror';
     resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder"><i class="fas fa-spinner fa-spin"></i> ${t('common.loading', '加载中...')}</div>`);
     try {
