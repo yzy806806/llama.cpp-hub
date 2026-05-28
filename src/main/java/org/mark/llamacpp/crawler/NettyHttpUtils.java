@@ -45,6 +45,17 @@ public final class NettyHttpUtils {
     private static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
     private static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
     private static final int MAX_AGGREGATE_LENGTH = 10 * 1024 * 1024;
+    private static final int MAX_REDIRECTS = 5;
+    private static final Set<String> SENSITIVE_REDIRECT_HEADERS = Set.of(
+            HttpHeaderNames.AUTHORIZATION.toString().toLowerCase(Locale.ROOT),
+            HttpHeaderNames.COOKIE.toString().toLowerCase(Locale.ROOT),
+            HttpHeaderNames.HOST.toString().toLowerCase(Locale.ROOT)
+    );
+    private static final ExecutorService REDIRECT_EXECUTOR = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "http-redirect");
+        t.setDaemon(true);
+        return t;
+    });
 
     private NettyHttpUtils() {}
 
@@ -107,7 +118,7 @@ public final class NettyHttpUtils {
      */
     public static class Request {
 
-        private final String url;
+        private final String originalUrl;
         private String method = "GET";
         private Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
         private Duration readTimeout = DEFAULT_READ_TIMEOUT;
@@ -119,7 +130,7 @@ public final class NettyHttpUtils {
         private int expectedStatus;
 
         Request(String url) {
-            this.url = url;
+            this.originalUrl = url;
         }
 
         public Request method(String method) {
@@ -205,7 +216,9 @@ public final class NettyHttpUtils {
          */
         public Response execute() throws IOException {
             try {
-                return executeAsync().get(Math.max(connectTimeout.toMillis(), readTimeout.toMillis()), TimeUnit.MILLISECONDS);
+                return executeAsync().get(
+                    Math.max(connectTimeout.toMillis(), readTimeout.toMillis()) * MAX_REDIRECTS,
+                    TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Request interrupted", e);
@@ -221,12 +234,70 @@ public final class NettyHttpUtils {
         }
 
         public CompletableFuture<Response> executeAsync() {
-            CompletableFuture<Response> future = new CompletableFuture<>();
+            CompletableFuture<Response> root = new CompletableFuture<>();
+            REDIRECT_EXECUTOR.execute(() -> {
+                try {
+                    RedirectRequestState finalState = executeRedirectChain();
+                    root.complete(validateResponse(finalState.response(), finalState.url()));
+                } catch (Exception e) {
+                    root.completeExceptionally(e);
+                }
+            });
+            return root;
+        }
 
+        private RedirectRequestState executeRedirectChain() throws IOException {
+            RedirectRequestState current = RedirectRequestState.initial(originalUrl, method, headers, requestBody);
+            for (int i = 0; i <= MAX_REDIRECTS; i++) {
+                Response resp = executeSingle(current);
+                current = current.withResponse(resp);
+                if (!shouldFollowRedirect(resp.statusCode())) {
+                    return current;
+                }
+                String location = resp.header("Location");
+                if (location == null || location.isBlank()) {
+                    return current;
+                }
+                String nextUrl = resolveRedirectUrl(current.url(), location);
+                if (nextUrl == null) {
+                    throw new IOException("Invalid redirect Location: " + location);
+                }
+                current = current.follow(nextUrl, resp.statusCode());
+            }
+            throw new IOException("Too many redirects (max " + MAX_REDIRECTS + ")");
+        }
+
+        private Response validateResponse(Response response, String finalUrl) throws IOException {
+            if (!validateStatus || response == null) {
+                return response;
+            }
+            int statusCode = response.statusCode();
+            if (expectedStatus != 0) {
+                if (statusCode != expectedStatus) {
+                    throw new IOException("Expected status " + expectedStatus + " but got " + statusCode + " for " + finalUrl);
+                }
+                return response;
+            }
+            if (statusCode >= 200 && statusCode < 300) {
+                return response;
+            }
+            String bodyPreview = new String(response.body(), StandardCharsets.UTF_8);
+            if (bodyPreview.length() > 800) {
+                bodyPreview = bodyPreview.substring(0, 800) + "...";
+            }
+            throw new IOException("HTTP " + statusCode + " " + finalUrl + "\n" + bodyPreview);
+        }
+
+        private boolean shouldFollowRedirect(int statusCode) {
+            return followRedirects && statusCode >= 300 && statusCode < 400;
+        }
+
+        private Response executeSingle(RedirectRequestState state) throws IOException {
+            CompletableFuture<Response> future = new CompletableFuture<>();
             EventLoopGroup group = new NioEventLoopGroup(1);
-            future.whenComplete((unused, throwable) -> group.shutdownGracefully());
+
             try {
-                URI requestUri = URI.create(url);
+                URI requestUri = URI.create(state.url());
                 String scheme = requestUri.getScheme();
                 boolean isHttps = "https".equalsIgnoreCase(scheme);
                 if (!isHttps && !"http".equalsIgnoreCase(scheme)) {
@@ -235,7 +306,7 @@ public final class NettyHttpUtils {
 
                 String host = requestUri.getHost();
                 if (host == null || host.isBlank()) {
-                    throw new IOException("Invalid URL host: " + url);
+                    throw new IOException("Invalid URL host: " + state.url());
                 }
 
                 int parsedPort = requestUri.getPort();
@@ -256,15 +327,13 @@ public final class NettyHttpUtils {
                                 pipeline.addLast(new ReadTimeoutHandler(readTimeout.toMillis(), TimeUnit.MILLISECONDS));
 
                                 if (proxyConfig != null && isHttps) {
-                                    // HTTPS through proxy: send CONNECT first
                                     pipeline.addLast(new HttpClientCodec());
                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
                                     pipeline.addLast(new ConnectProxyHandler(
                                             requestTarget, hostHeader, host, port,
-                                            proxyConfig, headers, requestBody, method, followRedirects,
-                                            validateStatus, expectedStatus, future, readTimeout));
+                                            proxyConfig, state.headers(), state.requestBody(), state.method(),
+                                            future, readTimeout));
                                 } else if (isHttps) {
-                                    // HTTPS direct: add SSL first
                                     try {
                                       SSLContext sslContext = SSLContext.getDefault();
                                          SSLEngine sslEngine = sslContext.createSSLEngine(host, port);
@@ -277,30 +346,63 @@ public final class NettyHttpUtils {
                                     pipeline.addLast(new HttpClientCodec());
                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
                                     pipeline.addLast(new HttpChannelHandler(
-                                            host, hostHeader, requestTarget, proxyConfig, headers, requestBody, method,
-                                            followRedirects, validateStatus, expectedStatus, future, readTimeout, true));
+                                            hostHeader, requestTarget, proxyConfig, state.headers(),
+                                            state.requestBody(), state.method(), future, true));
                                 } else {
-                                    // HTTP direct or HTTP through proxy
                                     pipeline.addLast(new HttpClientCodec());
                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
                                     pipeline.addLast(new HttpChannelHandler(
-                                            host, hostHeader, requestTarget, proxyConfig, headers, requestBody, method,
-                                            followRedirects, validateStatus, expectedStatus, future, readTimeout, false));
+                                            hostHeader, requestTarget, proxyConfig, state.headers(),
+                                            state.requestBody(), state.method(), future, false));
                                 }
                             }
                         })
                         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.toMillis());
 
                ChannelFuture connectFuture = bootstrap.connect(connectHost, connectPort);
-                connectFuture.addListener((GenericFutureListener<ChannelFuture>) future1 -> {
-                    if (!future1.isSuccess()) {
-                        future.completeExceptionally(new IOException("Failed to connect", future1.cause()));
+                connectFuture.addListener((GenericFutureListener<ChannelFuture>) f -> {
+                    if (!f.isSuccess()) {
+                        future.completeExceptionally(new IOException("Failed to connect", f.cause()));
                     }
                 });
-            } catch (Exception e) {
-                future.completeExceptionally(e);
+
+                Response resp = future.get(Math.max(connectTimeout.toMillis(), readTimeout.toMillis()) * 2, TimeUnit.MILLISECONDS);
+                group.shutdownGracefully();
+                return resp;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                group.shutdownGracefully();
+                throw new IOException("Request interrupted", e);
+            } catch (ExecutionException e) {
+                group.shutdownGracefully();
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException) {
+                    throw (IOException) cause;
+                }
+                throw new IOException("Request failed", cause);
+            } catch (TimeoutException e) {
+                group.shutdownGracefully();
+                throw new IOException("Request timed out", e);
+            } catch (IOException e) {
+                group.shutdownGracefully();
+                throw e;
             }
-            return future;
+        }
+
+        private String resolveRedirectUrl(String requestUrl, String location) {
+            if (location == null || location.isBlank()) {
+                return null;
+            }
+            try {
+                URI resolved = URI.create(requestUrl).resolve(location);
+                String scheme = resolved.getScheme();
+                if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                    return null;
+                }
+                return resolved.toString();
+            } catch (Exception e) {
+                return null;
+            }
         }
 
         private String buildRequestTarget(URI uri, boolean absoluteForm) {
@@ -328,6 +430,78 @@ public final class NettyHttpUtils {
             int defaultPort = isHttps ? 443 : 80;
             return port == defaultPort ? host : host + ":" + port;
         }
+
+        private record RedirectRequestState(
+                String url,
+                String method,
+                Map<String, String> headers,
+                byte[] requestBody,
+                Response response
+        ) {
+            private static RedirectRequestState initial(String url, String method, Map<String, String> headers, byte[] requestBody) {
+                return new RedirectRequestState(url, method, new LinkedHashMap<>(headers), requestBody, null);
+            }
+
+            private RedirectRequestState withResponse(Response response) {
+                return new RedirectRequestState(url, method, headers, requestBody, response);
+            }
+
+            private RedirectRequestState follow(String nextUrl, int statusCode) throws IOException {
+                URI from = URI.create(url);
+                URI to = URI.create(nextUrl);
+                boolean sameOrigin = isSameOrigin(from, to);
+                Map<String, String> nextHeaders = copyHeadersForRedirect(headers, sameOrigin);
+
+                String nextMethod = method;
+                byte[] nextBody = requestBody;
+                if (statusCode == 303 || ((statusCode == 301 || statusCode == 302) && "POST".equalsIgnoreCase(method))) {
+                    nextMethod = "GET";
+                    nextBody = null;
+                    removeEntityHeaders(nextHeaders);
+                }
+
+                return new RedirectRequestState(nextUrl, nextMethod, nextHeaders, nextBody, null);
+            }
+
+            private static Map<String, String> copyHeadersForRedirect(Map<String, String> source, boolean sameOrigin) {
+                Map<String, String> copied = new LinkedHashMap<>();
+                for (Map.Entry<String, String> entry : source.entrySet()) {
+                    String lowerName = entry.getKey().toLowerCase(Locale.ROOT);
+                    if (!sameOrigin && SENSITIVE_REDIRECT_HEADERS.contains(lowerName)) {
+                        continue;
+                    }
+                    if (HttpHeaderNames.HOST.toString().equalsIgnoreCase(entry.getKey())) {
+                        continue;
+                    }
+                    copied.put(entry.getKey(), entry.getValue());
+                }
+                return copied;
+            }
+
+            private static void removeEntityHeaders(Map<String, String> headers) {
+                headers.keySet().removeIf(name ->
+                        HttpHeaderNames.CONTENT_LENGTH.toString().equalsIgnoreCase(name)
+                                || HttpHeaderNames.CONTENT_TYPE.toString().equalsIgnoreCase(name)
+                                || HttpHeaderNames.TRANSFER_ENCODING.toString().equalsIgnoreCase(name));
+            }
+
+            private static boolean isSameOrigin(URI first, URI second) {
+                if (!Objects.equals(first.getScheme(), second.getScheme())) {
+                    return false;
+                }
+                if (!Objects.equals(first.getHost(), second.getHost())) {
+                    return false;
+                }
+                return effectivePort(first) == effectivePort(second);
+            }
+
+            private static int effectivePort(URI uri) {
+                if (uri.getPort() != -1) {
+                    return uri.getPort();
+                }
+                return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -345,18 +519,13 @@ public final class NettyHttpUtils {
         private final Map<String, String> headers;
         private final byte[] requestBody;
         private final String method;
-        private final boolean followRedirects;
-        private final boolean validateStatus;
-        private final int expectedStatus;
         private final CompletableFuture<Response> future;
-        private final Duration readTimeout;
         private final ProxyConfig proxyConfig;
 
         ConnectProxyHandler(String requestTarget, String hostHeader, String targetHost, int targetPort,
                            ProxyConfig proxyConfig, Map<String, String> headers,
                            byte[] requestBody, String method,
-                           boolean followRedirects, boolean validateStatus,
-                           int expectedStatus, CompletableFuture<Response> future,
+                           CompletableFuture<Response> future,
                            Duration readTimeout) {
             this.requestTarget = requestTarget;
             this.hostHeader = hostHeader;
@@ -365,11 +534,7 @@ public final class NettyHttpUtils {
             this.headers = headers;
             this.requestBody = requestBody;
             this.method = method;
-            this.followRedirects = followRedirects;
-            this.validateStatus = validateStatus;
-            this.expectedStatus = expectedStatus;
             this.future = future;
-            this.readTimeout = readTimeout;
             this.proxyConfig = proxyConfig;
         }
 
@@ -417,8 +582,7 @@ public final class NettyHttpUtils {
                         ctx.pipeline().addLast(new HttpClientCodec());
                         ctx.pipeline().addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
                         ctx.pipeline().addLast(new HttpChannelHandler(
-                                targetHost, hostHeader, requestTarget, null, headers, requestBody, method,
-                                followRedirects, validateStatus, expectedStatus, future, readTimeout, true));
+                                hostHeader, requestTarget, null, headers, requestBody, method, future, true));
                     } catch (Exception e) {
                         future.completeExceptionally(new IOException("Failed to establish SSL tunnel", e));
                     }
@@ -450,24 +614,19 @@ public final class NettyHttpUtils {
         private final Map<String, String> headers;
         private final byte[] requestBody;
         private final String method;
-        private final boolean validateStatus;
-        private final int expectedStatus;
         private final CompletableFuture<Response> future;
         private final boolean waitForTlsHandshake;
         private final AtomicBoolean sent = new AtomicBoolean(false);
 
-        HttpChannelHandler(String host, String hostHeader, String requestTarget, ProxyConfig proxyConfig,
+        HttpChannelHandler(String hostHeader, String requestTarget, ProxyConfig proxyConfig,
                           Map<String, String> headers, byte[] requestBody, String method,
-                          boolean followRedirects, boolean validateStatus, int expectedStatus,
-                          CompletableFuture<Response> future, Duration readTimeout, boolean waitForTlsHandshake) {
+                          CompletableFuture<Response> future, boolean waitForTlsHandshake) {
             this.hostHeader = hostHeader;
             this.requestTarget = requestTarget;
             this.proxyConfig = proxyConfig;
             this.headers = headers;
             this.requestBody = requestBody;
             this.method = method;
-            this.validateStatus = validateStatus;
-            this.expectedStatus = expectedStatus;
             this.future = future;
             this.waitForTlsHandshake = waitForTlsHandshake;
         }
@@ -547,26 +706,6 @@ public final class NettyHttpUtils {
                  });
 
                 byte[] body = ByteBufUtil.getBytes(response.content());
-
-                if (validateStatus) {
-                    if (expectedStatus != 0) {
-                        if (statusCode != expectedStatus) {
-                            future.completeExceptionally(new IOException(
-                                    "Expected status " + expectedStatus + " but got " + statusCode + " for " + requestTarget));
-                            response.release();
-                            return;
-                        }
-                    } else if (statusCode < 200 || statusCode >= 300) {
-                        String bodyPreview = new String(body, StandardCharsets.UTF_8);
-                        if (bodyPreview.length() > 800) {
-                            bodyPreview = bodyPreview.substring(0, 800) + "...";
-                        }
-                        future.completeExceptionally(new IOException("HTTP " + statusCode + " " + requestTarget + "\n" + bodyPreview));
-                        response.release();
-                        return;
-                    }
-                }
-
                 Response resp = new Response(statusCode, body, respHeaders);
                 future.complete(resp);
                 response.release();
