@@ -149,15 +149,19 @@ public class WriteTextFileTool implements IMCPTool {
 					throw new SecurityException("写入被拒绝: 符号链接解析后路径 " + realPath + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
 				}
 			} else {
-				// New file: resolve the nearest existing parent directory
-				Path parent = resolved.getParent();
-				if (parent != null) {
-					Path realParent = parent.toRealPath();
-					if (!realParent.startsWith(this.fallbackRootPath)) {
-						throw new SecurityException("写入被拒绝: 父目录符号链接解析后路径 " + realParent + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+					// New file: walk up to find the nearest existing ancestor and validate it
+					Path current = resolved.getParent();
+					while (current != null && !Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+						current = current.getParent();
+					}
+					if (current != null) {
+						Path realAncestor = current.toRealPath();
+						if (!realAncestor.startsWith(this.fallbackRootPath)) {
+							throw new SecurityException("写入被拒绝: 父目录符号链接解析后路径 "
+								+ realAncestor + " 不在允许的目录 " + this.fallbackRootPath + " 范围内");
+						}
 					}
 				}
-			}
 		} catch (IOException e) {
 			// If toRealPath() fails (e.g. broken symlink, permission denied), block the write
 			throw new SecurityException("写入被拒绝: 无法验证路径安全性 (" + e.getMessage() + "): " + resolved);
@@ -229,8 +233,8 @@ public class WriteTextFileTool implements IMCPTool {
 	private boolean isSensitiveSystemPath(Path filePath) {
 		String path = filePath.toAbsolutePath().normalize().toString();
 		// Unix sensitive paths
-		if (path.startsWith("/etc") || path.startsWith("/proc") || path.startsWith("/sys")
-				|| path.startsWith("/boot") || path.startsWith("/dev") || path.startsWith("/run")) {
+		if (path.startsWith("/etc/") || path.startsWith("/proc/") || path.startsWith("/sys/")
+				|| path.startsWith("/boot/") || path.startsWith("/dev/") || path.startsWith("/run/")) {
 			return true;
 		}
 		// Windows sensitive paths
