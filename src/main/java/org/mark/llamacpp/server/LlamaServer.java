@@ -30,11 +30,13 @@ import org.mark.llamacpp.server.channel.LlamaRouterHandler;
 import org.mark.llamacpp.server.io.ConsoleBroadcastOutputStream;
 import org.mark.llamacpp.server.io.ConsoleBufferLogAppender;
 import org.mark.llamacpp.server.mcp.McpClientService;
+import org.mark.llamacpp.server.service.LlamaRecordService;
 import org.mark.llamacpp.server.service.ModelSamplingService;
 import org.mark.llamacpp.gguf.GGUFModel;
 import org.mark.llamacpp.server.struct.LlamaCppConfig;
 import org.mark.llamacpp.server.struct.LlamaCppDataStruct;
 import org.mark.llamacpp.server.struct.ModelPathConfig;
+import org.mark.llamacpp.server.struct.ProxyConfigData;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.mark.llamacpp.server.websocket.WebSocketManager;
@@ -116,6 +118,21 @@ public class LlamaServer {
 		logger.info("正在加载application.json配置...");
 		loadApplicationConfig();
 
+		// 加载代理配置
+		try {
+			Path proxyConfigFile = getProxyConfigPath();
+			ProxyConfigData pCfg = readProxyConfig(proxyConfigFile);
+			if (pCfg != null) {
+				proxyConfig = pCfg;
+				logger.info("代理配置已加载: enabled={}, host={}, port={}", pCfg.isEnabled(), pCfg.getHost(), pCfg.getPort());
+			} else {
+				logger.info("代理配置为空");
+			}
+		} catch (Exception e) {
+			logger.info("加载代理配置失败，使用默认配置: {}", e.getMessage());
+			e.printStackTrace();
+		}
+
 		// 初始化配置管理器并加载配置
 		logger.info("正在初始化配置管理器...");
 		ConfigManager configManager = ConfigManager.getInstance();
@@ -175,6 +192,9 @@ public class LlamaServer {
 				logger.info("启动MCP服务失败: {}", e.getMessage());
 			}
 		}
+		
+		// 初始化一下记录服务
+		LlamaRecordService.getInstance();
 
 		// 尝试创建系统托盘
 		createWindowsSystemTray();
@@ -1568,6 +1588,65 @@ public static String getDefaultModelsPath() {
 		String json = GSON.toJson(cfg);
 		Files.write(configFile, json.getBytes(StandardCharsets.UTF_8));
 		logger.info("模型路径配置已保存到文件: {}", configFile.toString());
+	}
+
+	/**
+	 * 	读代理配置
+	 */
+	public synchronized static Path getProxyConfigPath() throws IOException {
+		String currentDir = System.getProperty("user.dir");
+		Path configDir = Paths.get(currentDir, "config");
+		if (!Files.exists(configDir)) {
+			Files.createDirectories(configDir);
+		}
+		return configDir.resolve("proxy.json");
+	}
+
+	/**
+	 * 	读代理配置
+	 */
+	public synchronized static ProxyConfigData readProxyConfig(Path configFile) throws IOException {
+		ProxyConfigData cfg = new ProxyConfigData();
+		if (Files.exists(configFile)) {
+			String json = new String(Files.readAllBytes(configFile), StandardCharsets.UTF_8);
+			ProxyConfigData read = GSON.fromJson(json, ProxyConfigData.class);
+			if (read != null) {
+				cfg.setEnabled(read.isEnabled());
+				cfg.setHost(read.getHost());
+				cfg.setPort(read.getPort());
+				cfg.setUsername(read.getUsername());
+				cfg.setPassword(read.getPassword());
+			}
+		}
+		return cfg;
+	}
+
+	/**
+	 * 	写代理配置
+	 */
+	public synchronized static void writeProxyConfig(Path configFile, ProxyConfigData cfg) throws IOException {
+		String json = GSON.toJson(cfg);
+		Files.write(configFile, json.getBytes(StandardCharsets.UTF_8));
+		logger.info("代理配置已保存到文件: {}", configFile.toString());
+	}
+
+	// --- Runtime proxy config cache ---
+	private static ProxyConfigData proxyConfig = new ProxyConfigData();
+
+	/**
+	 * Get the current proxy configuration (runtime cache).
+	 */
+	public static ProxyConfigData getProxyConfig() {
+		return proxyConfig;
+	}
+
+	/**
+	 * Set the proxy configuration (runtime cache).
+	 */
+	public static void setProxyConfig(ProxyConfigData cfg) {
+		if (cfg != null) {
+			proxyConfig = cfg;
+		}
 	}
 
 	//================================================================================================

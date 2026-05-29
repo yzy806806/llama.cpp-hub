@@ -1,10 +1,10 @@
 (function () {
-    const PAGE_SIZE = 50;
+    const PAGE_SIZE = 30;
 
     let tokenSummaryData = [];
     let requestLogsData = [];
     let dailyTokenData = [];
-    let filteredLogs = [];
+    let requestLogTotal = 0;
     let currentPage = 1;
     let selectedModelId = '';
 
@@ -58,6 +58,7 @@
             tokenSummaryData = [];
         }
         renderTokenSummary();
+        buildModelFilter();
     }
 
     async function fetchDailyTokens() {
@@ -139,19 +140,23 @@
     }
 
     async function fetchRequestLogs() {
+        let url = '/api/report/request-logs?page=' + currentPage + '&pageSize=' + PAGE_SIZE;
+        if (selectedModelId) {
+            url += '&modelId=' + encodeURIComponent(selectedModelId);
+        }
         try {
-            const resp = await fetch('/api/report/request-logs');
+            const resp = await fetch(url);
             const result = await resp.json();
             if (!result || !result.success) {
                 requestLogsData = [];
             } else {
-                requestLogsData = result.data || [];
+                requestLogsData = (result.data && result.data.records) || [];
+                requestLogTotal = result.data ? (result.data.total || 0) : 0;
             }
         } catch (e) {
             requestLogsData = [];
         }
-        buildModelFilter();
-        applyFilter();
+        renderRequestLogs();
     }
 
     // --- Shared tooltip draw helper (overlaid bars) ---
@@ -571,7 +576,7 @@
     function buildModelFilter() {
         const select = document.getElementById('requestLogModelFilter');
         const modelSet = new Set();
-        for (const r of requestLogsData) {
+        for (const r of tokenSummaryData) {
             if (r.modelId) modelSet.add(r.modelId);
         }
         const models = Array.from(modelSet).sort();
@@ -582,32 +587,11 @@
     }
 
     function filterByModel() {
-        applyFilter();
-    }
-
-    function applyFilter() {
         const modelFilter = document.getElementById('requestLogModelFilter').value;
-        if (modelFilter) {
-            filteredLogs = requestLogsData.filter(r => r.modelId === modelFilter);
-        } else {
-            filteredLogs = requestLogsData.slice();
-        }
-        currentPage = 1;
-        renderRequestLogs();
-    }
-
-    function prevPage() {
-        if (currentPage > 1) {
-            currentPage--;
-            renderRequestLogs();
-        }
-    }
-
-    function nextPage() {
-        const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE) || 1;
-        if (currentPage < totalPages) {
-            currentPage++;
-            renderRequestLogs();
+        if (selectedModelId !== modelFilter) {
+            selectedModelId = modelFilter;
+            currentPage = 1;
+            fetchRequestLogs();
         }
     }
 
@@ -617,11 +601,9 @@
         const prevBtn = document.getElementById('reqLogPrev');
         const nextBtn = document.getElementById('reqLogNext');
 
-        const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE) || 1;
+        const totalPages = Math.ceil(requestLogTotal / PAGE_SIZE) || 1;
         if (currentPage > totalPages) currentPage = totalPages;
-        const start = (currentPage - 1) * PAGE_SIZE;
-        const end = Math.min(start + PAGE_SIZE, filteredLogs.length);
-        const pageData = filteredLogs.slice(start, end);
+        const pageData = requestLogsData;
 
         pageInfo.textContent = t('page.usage_report.page_info', '第 {current} / {total} 页').replace('{current}', currentPage).replace('{total}', totalPages);
         prevBtn.disabled = currentPage <= 1;
@@ -711,7 +693,7 @@
         load: load,
         switchTab: switchTab,
         filterByModel: filterByModel,
-        prevPage: prevPage,
-        nextPage: nextPage
+        prevPage: function() { if (currentPage > 1) { currentPage--; fetchRequestLogs(); } },
+        nextPage: function() { currentPage++; fetchRequestLogs(); }
     };
 })();

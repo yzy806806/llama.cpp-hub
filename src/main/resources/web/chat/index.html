@@ -182,6 +182,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
             采样参数
           </button>
+          <button class="settings-tab" data-settings-tab="templates" role="tab" type="button" data-i18n="page.chat.main.settings.tab.templates">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16"/><path d="M4 12h12"/><path d="M4 18h8"/></svg>
+            模板
+          </button>
           <button class="settings-tab" data-settings-tab="mcp" role="tab" type="button" data-i18n="page.chat.main.settings.tab.mcp">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><path d="M9 9l12-2"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
             MCP
@@ -335,6 +339,49 @@
             </div>
           </div>
 
+          <div class="settings-section" data-settings-section="templates">
+            <div class="settings-group">
+              <div class="settings-group-title" data-i18n="page.chat.main.settings.templates.section_title">消息模板</div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.templates.timestamp_label">附带实时时间</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.templates.timestamp_toggle">附带实时时间</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.templates.timestamp_desc">启用后，发送消息时会在消息最前面自动插入当前时间戳</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="timestampToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.templates.title_gen_label">开启标题生成</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.templates.title_gen_toggle">AI 自动生成对话标题</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.templates.title_gen_desc">启用后，AI 会在首次回复完成后自动为会话生成标题</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="titleGenToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label for="titleGenModelSelect" data-i18n="page.chat.main.settings.templates.title_gen_model_label">标题生成模型</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.templates.title_gen_model_desc">选择用于生成标题的模型，留空则使用当前对话模型</p>
+                <select id="titleGenModelSelect" class="drawer-input"></select>
+              </div>
+            </div>
+          </div>
+
           <div class="settings-section" data-settings-section="mcp">
             <div class="settings-group">
               <div class="settings-group-title" data-i18n="page.chat.main.settings.mcp.title">MCP</div>
@@ -462,6 +509,9 @@
       stream: true,
       streamRender: true,
       enableThinking: false,
+      enableTimestamp: false,
+      enableTitleGen: false,
+      titleGenModel: '',
       systemPrompt: '',
       mcpServerUrls: [],
       search: '',
@@ -581,7 +631,10 @@
       mcpUseSseTemplateBtn: document.getElementById('mcpUseSseTemplateBtn'),
       mcpRefreshBtn: document.getElementById('mcpRefreshBtn'),
       mcpSummary: document.getElementById('mcpSummary'),
-      mcpServerList: document.getElementById('mcpServerList')
+      mcpServerList: document.getElementById('mcpServerList'),
+      timestampToggle: document.getElementById('timestampToggle'),
+      titleGenToggle: document.getElementById('titleGenToggle'),
+      titleGenModelSelect: document.getElementById('titleGenModelSelect')
     };
 
     let mcpModule = null;
@@ -1296,6 +1349,7 @@
         stream: typeof assistant?.stream === 'boolean' ? assistant.stream : typeof fallback?.stream === 'boolean' ? fallback.stream : true,
         streamRender: typeof assistant?.streamRender === 'boolean' ? assistant.streamRender : typeof fallback?.streamRender === 'boolean' ? fallback.streamRender : true,
         enableThinking: typeof assistant?.enableThinking === 'boolean' ? assistant.enableThinking : typeof fallback?.enableThinking === 'boolean' ? fallback.enableThinking : false,
+        enableTimestamp: typeof assistant?.enableTimestamp === 'boolean' ? assistant.enableTimestamp : typeof fallback?.enableTimestamp === 'boolean' ? fallback.enableTimestamp : false,
         systemPrompt: typeof assistant?.systemPrompt === 'string' ? assistant.systemPrompt : typeof fallback?.systemPrompt === 'string' ? fallback.systemPrompt : '',
         mcpServerUrls: normalizeMcpAssistantUrls(assistant, fallback),
         mcpToolStates: normalizeMcpToolStates(assistant, fallback)
@@ -1318,6 +1372,7 @@
         stream: typeof saved?.stream === 'boolean' ? saved.stream : true,
         streamRender: typeof saved?.streamRender === 'boolean' ? saved.streamRender : true,
         enableThinking: typeof saved?.enableThinking === 'boolean' ? saved.enableThinking : false,
+        enableTimestamp: typeof saved?.enableTimestamp === 'boolean' ? saved.enableTimestamp : false,
         systemPrompt: typeof saved?.systemPrompt === 'string' ? saved.systemPrompt : ''
       });
     }
@@ -2008,6 +2063,7 @@
       state.stream = typeof assistant?.stream === 'boolean' ? assistant.stream : true;
       state.streamRender = typeof assistant?.streamRender === 'boolean' ? assistant.streamRender : true;
       state.enableThinking = !!assistant?.enableThinking;
+      state.enableTimestamp = !!assistant?.enableTimestamp;
       state.systemPrompt = assistant?.systemPrompt || '';
       state.mcpServerUrls = normalizeMcpAssistantUrls(assistant);
       syncModelSelectControl();
@@ -2034,6 +2090,7 @@
       assistant.stream = !!state.stream;
       assistant.streamRender = !!state.streamRender;
       assistant.enableThinking = !!state.enableThinking;
+      assistant.enableTimestamp = !!state.enableTimestamp;
       assistant.systemPrompt = state.systemPrompt;
       assistant.mcpServerUrls = normalizeMcpAssistantUrls({ mcpServerUrls: state.mcpServerUrls });
     }
@@ -2577,6 +2634,29 @@
       els.stopSequencesInput.value = state.stopSequences;
       els.streamToggle.checked = !!state.stream;
       els.streamRenderToggle.checked = !!state.streamRender;
+      if (els.timestampToggle) els.timestampToggle.checked = !!state.enableTimestamp;
+      if (els.titleGenToggle) els.titleGenToggle.checked = !!state.enableTitleGen;
+      if (els.titleGenModelSelect) {
+        const currentVal = state.titleGenModel || '';
+        els.titleGenModelSelect.innerHTML = '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = '';
+        defaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.title_gen_model_default', '使用当前对话模型');
+        els.titleGenModelSelect.appendChild(defaultOpt);
+        for (const opt of els.modelSelect.options) {
+          const clone = document.createElement('option');
+          clone.value = opt.value;
+          clone.textContent = opt.textContent;
+          els.titleGenModelSelect.appendChild(clone);
+        }
+        if (currentVal && !Array.from(els.titleGenModelSelect.options).some(o => o.value === currentVal)) {
+          const opt = document.createElement('option');
+          opt.value = currentVal;
+          opt.textContent = currentVal;
+          els.titleGenModelSelect.insertBefore(opt, els.titleGenModelSelect.firstChild.nextSibling);
+        }
+        els.titleGenModelSelect.value = currentVal;
+      }
       els.systemPromptInput.value = state.systemPrompt;
       resizeSystemPromptInput();
       els.searchInput.value = state.search;
@@ -2622,6 +2702,9 @@
       state.stopSequences = els.stopSequencesInput.value;
       state.stream = els.streamToggle.checked;
       state.streamRender = els.streamRenderToggle.checked;
+      state.enableTimestamp = els.timestampToggle ? els.timestampToggle.checked : false;
+      state.enableTitleGen = els.titleGenToggle ? els.titleGenToggle.checked : false;
+      state.titleGenModel = els.titleGenModelSelect ? els.titleGenModelSelect.value : '';
       state.systemPrompt = els.systemPromptInput.value;
       syncCurrentAssistantFromRuntimeState();
       renderThinkingMenu();
@@ -2737,6 +2820,8 @@
         sidebarCollapsed: state.sidebarCollapsed,
         search: state.search,
         privacyMode: state.privacyMode,
+        enableTitleGen: state.enableTitleGen,
+        titleGenModel: state.titleGenModel,
         assistants: state.assistants,
         conversations: state.conversations.map(conversation => buildConversationSummaryPayload(conversation)),
         currentConversationId: state.currentConversationId
@@ -2892,6 +2977,8 @@
       state.sidebarCollapsed = typeof saved?.sidebarCollapsed === 'boolean' ? saved.sidebarCollapsed : false;
       state.search = typeof saved?.search === 'string' ? saved.search : '';
       state.privacyMode = typeof saved?.privacyMode === 'boolean' ? saved.privacyMode : false;
+      state.enableTitleGen = typeof saved?.enableTitleGen === 'boolean' ? saved.enableTitleGen : false;
+      state.titleGenModel = typeof saved?.titleGenModel === 'string' ? saved.titleGenModel : '';
       state.currentConversationId = typeof saved?.currentConversationId === 'string' ? saved.currentConversationId : '';
       const fallbackAssistantId = getFallbackAssistant()?.id || '';
       state.conversations = Array.isArray(saved?.conversations)
@@ -4432,7 +4519,11 @@
         syncSendButtonState();
         els.statusDot.classList.remove('loading');
         removeTypingIndicator();
-        updateConversationTitle(getCurrentConversation());
+        const doneConversation = getCurrentConversation();
+        updateConversationTitle(doneConversation);
+        if (doneConversation && doneConversation.messages && doneConversation.messages.length === 2) {
+          generateConversationTitle(doneConversation);
+        }
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
@@ -4969,7 +5060,7 @@
         return;
       }
       syncRuntimeStateFromCurrentAssistant();
-      const prompt = els.promptInput.value.trim();
+      let prompt = els.promptInput.value.trim();
       const images = normalizeImages(state.draftImages);
       const files = normalizeTextFiles(state.draftTextFiles);
       const audios = normalizeAudioFiles(state.draftAudioFiles);
@@ -4980,6 +5071,14 @@
       if (!state.model) {
         updateStatus('error', window.I18N.t('page.chat.main.status.no_model_selected', '请先选择模型'), window.I18N.t('page.chat.main.status.no_model_selected_short', '未选择模型'));
         return;
+      }
+
+      if (state.enableTimestamp && prompt) {
+        const now = new Date();
+        const dateStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+        const timeStr = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        const prefix = window.I18N.t('page.chat.main.templates.timestamp_prefix', '[Current system time: {date} {time}]');
+        prompt = prefix.replace('{date}', dateStr).replace('{time}', timeStr) + '\n\n' + prompt;
       }
 
       pushMessage('user', prompt, { images, files, audios }, { persist: false });
@@ -5022,6 +5121,78 @@
       els.promptInput.focus();
       setSidebarOpen(false);
       updateStatus('ready', window.I18N.t('page.chat.main.status.new_conversation', '已创建新对话'), window.I18N.t('page.chat.main.status.new_conversation_short', '新对话'));
+    }
+
+    async function generateConversationTitle(conversation) {
+      if (!state.enableTitleGen) {
+        return;
+      }
+      if (!conversation || !Array.isArray(conversation.messages)) {
+        return;
+      }
+      const firstUser = conversation.messages.find(m => m.role === 'user' && hasMessageBody(m));
+      if (!firstUser) {
+        return;
+      }
+      const firstAssistant = conversation.messages.find(m => m.role === 'assistant' && hasMessageBody(m));
+      if (!firstAssistant) {
+        return;
+      }
+      const userContent = buildUserContent(firstUser);
+      const assistantContent = contentToText(firstAssistant.content);
+      if (!userContent && !assistantContent) {
+        return;
+      }
+      const convAssistant = getConversationAssistant(conversation);
+      const compositeKey = state.titleGenModel || state.model || '';
+      if (!compositeKey) {
+        return;
+      }
+      const sep = compositeKey.lastIndexOf('::');
+      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
+      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
+      const messages = [];
+      if (convAssistant?.systemPrompt?.trim()) {
+        messages.push({ role: 'system', content: convAssistant.systemPrompt.trim() });
+      }
+      messages.push({ role: 'user', content: userContent });
+      messages.push({ role: 'assistant', content: assistantContent });
+      messages.push({
+        role: 'user',
+        content: 'Based on our conversation so far, can you suggest a name for this conversation? Put the name in the <name> tags. For example "<name>Student Loan Planning</name>".'
+      });
+      const body = {
+        model: bareModelId,
+        messages,
+        max_tokens: 30,
+        temperature: 0.3,
+        enable_thinking: false,
+        stream: false
+      };
+      if (nd) {
+        body.nodeId = nd;
+      }
+      try {
+        const response = await fetch(CHAT_ENDPOINT, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        const raw = data?.choices?.[0]?.message?.content || '';
+        const match = raw.match(/<name>([^<]*)<\/name>/);
+        const title = match ? match[1].trim() : '';
+        if (title) {
+          conversation.title = title;
+          renderConversationList();
+          syncConversationMeta();
+          await persistState({ immediate: true });
+        }
+      } catch {
+      }
     }
 
     async function openConversation(id) {
@@ -5999,6 +6170,7 @@ function confirmAudioRecording() {
       syncResponsiveLayout();
       updateStatus('', window.I18N.t('page.chat.main.status.loading_models', '正在加载模型列表…'), window.I18N.t('page.chat.main.status.disconnected', '未连接'));
       await refreshModels();
+      syncSettingsInputs();
     }
 
     void init();

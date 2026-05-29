@@ -78,10 +78,10 @@ async function copyToClipboard(text) {
     }
 }
 
-function formatDate(iso) {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
+function formatHfDate(iso) {
+    if (typeof iso !== 'string' || !iso.trim()) return '';
+    const d = new Date(iso.trim());
+    if (isNaN(d.getTime())) return '';
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -113,7 +113,8 @@ function renderHits() {
         const likes = hit.likes != null ? `<span class="badge"><i class="fas fa-thumbs-up"></i> ${hit.likes}</span>` : '';
         const params = hit.parameters ? `<span class="badge"><i class="fas fa-sliders-h"></i> ${hit.parameters}</span>` : '';
         const tag = hit.pipelineTag ? `<span class="badge"><i class="fas fa-tag"></i> ${hit.pipelineTag}</span>` : '';
-        const mod = hit.lastModified ? `<span class="badge"><i class="fas fa-clock"></i> ${formatDate(hit.lastModified)}</span>` : '';
+        const modDate = formatHfDate(hit.lastModified);
+        const mod = modDate ? `<span class="badge"><i class="fas fa-clock"></i> ${modDate}</span>` : '';
         return `
             <div class="list-item">
                 <div>
@@ -594,9 +595,10 @@ function showDetail(repoId) {
     }
 
     const parts = [];
-    if (hit.downloads != null) parts.push(`<span><i class="fas fa-download"></i> ${hit.downloads} 下载</span>`);
-    if (hit.likes != null) parts.push(`<span><i class="fas fa-thumbs-up"></i> ${hit.likes} 点赞</span>`);
-    if (hit.lastModified) parts.push(`<span><i class="fas fa-clock"></i> ${formatDate(hit.lastModified)}</span>`);
+    if (hit.downloads != null) parts.push(`<span><i class="fas fa-download"></i> ${hit.downloads}</span>`);
+    if (hit.likes != null) parts.push(`<span><i class="fas fa-thumbs-up"></i> ${hit.likes}</span>`);
+    const detailDate = formatHfDate(hit.lastModified);
+    if (detailDate) parts.push(`<span><i class="fas fa-clock"></i> ${detailDate}</span>`);
     if (hit.pipelineTag) parts.push(`<span><i class="fas fa-tag"></i> ${hit.pipelineTag}</span>`);
     if (hit.parameters) parts.push(`<span><i class="fas fa-sliders-h"></i> ${hit.parameters}</span>`);
     document.getElementById('hfDetailStats').innerHTML = parts.join('');
@@ -738,7 +740,7 @@ async function fetchDetailReadme(repoId) {
     if (hfDetailReadmeAbort) hfDetailReadmeAbort.abort();
     const controller = new AbortController();
     hfDetailReadmeAbort = controller;
-    const baseEl = document.getElementById('hfBase');
+    const baseEl = document.getElementById('hfBaseSelect');
     const base = baseEl ? String(baseEl.value || 'mirror') : 'mirror';
     resetDetailReadmePlaceholder(`<div class="hf-detail-placeholder"><i class="fas fa-spinner fa-spin"></i> ${t('common.loading', '加载中...')}</div>`);
     try {

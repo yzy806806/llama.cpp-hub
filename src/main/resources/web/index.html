@@ -756,19 +756,68 @@
                                                <div class="empty-state-text" data-i18n="page.model_path.empty">尚未配置任何模型路径</div>
                                            </div>
                                        </div>
-                                       <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-                                           <button class="btn btn-primary btn-sm" onclick="openAddModelPathModal()">
-                                               <i class="fas fa-plus"></i> <span data-i18n="common.add_path">添加路径</span>
-                                           </button>
-                                           <button class="btn btn-secondary btn-sm" onclick="loadModelPathList()">
-                                               <i class="fas fa-sync-alt"></i> <span data-i18n="common.refresh">刷新</span>
-                                           </button>
+<div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                                            <button class="btn btn-primary btn-sm" onclick="openAddModelPathModal()">
+                                                <i class="fas fa-plus"></i> <span data-i18n="common.add_path">添加路径</span>
+                                            </button>
+                                            <button class="btn btn-secondary btn-sm" onclick="loadModelPathList()">
+                                                <i class="fas fa-sync-alt"></i> <span data-i18n="common.refresh">刷新</span>
+                                            </button>
+                                        </div>
+                                     </div>
+                               </div>
+                               <hr style="margin: 1rem 0; border-color: var(--border-color);">
+                               <div class="form-group" style="margin: 0;">
+                                   <label class="form-label" style="font-size: 1rem; cursor: pointer; user-select: none;" onclick="toggleProxySection()">
+                                       <i class="fas fa-globe"></i>
+                                       <span data-i18n="page.settings.server.proxy_section">HTTP 代理</span>
+                                       <i class="fas fa-chevron-down" id="proxySectionChevron" style="margin-left: 0.5rem; font-size: 0.75rem; transition: transform 0.2s;"></i>
+                                   </label>
+                                   <small class="form-text" data-i18n="page.settings.server.proxy_section_desc">
+                                       配置 HTTP 代理，用于访问 HuggingFace 等外部服务。
+                                   </small>
+                               </div>
+                               <div id="proxySectionContent" style="display: none;">
+                                   <div style="margin-top: 0.75rem;">
+                                       <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                                           <div class="form-check" style="margin: 0;">
+                                               <input class="form-check-input" type="checkbox" id="toggleProxyEnabled">
+                                               <label class="form-check-label" for="toggleProxyEnabled" data-i18n="common.enable">启用代理</label>
+                                           </div>
+                                           <div class="row" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                               <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                                   <div class="row" style="flex: 1;">
+                                                       <label class="form-label" style="font-size: 12px;" data-i18n="page.settings.server.proxy_host">主机/域名</label>
+                                                       <input class="form-control" type="text" id="proxyHostInput" placeholder="例如: 127.0.0.1 或 proxy.example.com" data-i18n-attr="placeholder" data-i18n="page.settings.server.proxy_host_placeholder" style="font-size: 13px;">
+                                                   </div>
+                                                   <div class="row" style="width: 120px;">
+                                                       <label class="form-label" style="font-size: 12px;" data-i18n="page.settings.server.proxy_port">端口</label>
+                                                       <input class="form-control" type="number" id="proxyPortInput" min="1" max="65535" placeholder="7890" style="font-size: 13px;">
+                                                   </div>
+                                               </div>
+                                               <div class="row">
+                                                   <label class="form-label" style="font-size: 12px;" data-i18n="page.settings.server.proxy_username">用户名（可选）</label>
+                                                   <input class="form-control" type="text" id="proxyUsernameInput" placeholder="无需认证则留空" data-i18n-attr="placeholder" data-i18n="page.settings.server.proxy_username_placeholder" style="font-size: 13px;">
+                                               </div>
+                                               <div class="row">
+                                                   <label class="form-label" style="font-size: 12px;" data-i18n="page.settings.server.proxy_password">密码（可选）</label>
+                                                   <input class="form-control" type="password" id="proxyPasswordInput" placeholder="输入密码" data-i18n-attr="placeholder" data-i18n="page.settings.server.proxy_password_placeholder" style="font-size: 13px;">
+                                               </div>
+                                           </div>
+                                           <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.25rem;">
+                                               <button class="btn btn-secondary btn-sm" onclick="testProxyConnection()">
+                                                   <i class="fas fa-plug"></i> <span data-i18n="page.settings.server.proxy_test">测试连接</span>
+                                               </button>
+                                               <button class="btn btn-primary btn-sm" onclick="saveProxyConfig()">
+                                                   <i class="fas fa-save"></i> <span data-i18n="common.save">保存</span>
+                                               </button>
+                                           </div>
                                        </div>
-                                    </div>
-                              </div>
-                          </div>
-                       </div>
-                    </div>
+                                   </div>
+                               </div>
+                           </div>
+                        </div>
+                     </div>
 
                     <!-- Tab: Compatibility -->
                     <div class="settings-tab-panel" data-tab-panel="compat">

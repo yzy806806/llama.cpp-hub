@@ -3,17 +3,22 @@ package org.mark.llamacpp.server.service;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.mark.llamacpp.record.BinaryRequestLog;
+import org.mark.llamacpp.record.RequestLogRecord;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
+import org.mark.llamacpp.server.struct.TokenSummaryEntry;
 
-import java.io.BufferedWriter;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.util.LinkedHashMap;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.concurrent.ConcurrentHashMap;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
@@ -21,10 +26,12 @@ import java.util.stream.Stream;
  */
 public class LlamaRecordService {
 	
-	private static final LlamaRecordService INSTANCE = new LlamaRecordService();
+ private static final LlamaRecordService INSTANCE = new LlamaRecordService();
 	private final Gson gson = new Gson();
 	private static final String RECORD_DIR = "cache/record/";
-	private final Map<String, Timing> recordMap = new ConcurrentHashMap<>();
+	private final Map<String, BinaryRequestLog> logMap = new ConcurrentHashMap<>();
+	private final AtomicLong totalRecordCount = new AtomicLong(0);
+	private final Map<String, TokenSummaryEntry> tokenSummaryCache = new ConcurrentHashMap<>();
 
 	public static LlamaRecordService getInstance() {
 		return INSTANCE;
@@ -33,30 +40,167 @@ public class LlamaRecordService {
 	public LlamaRecordService() {
 		try {
 			Files.createDirectories(Paths.get(RECORD_DIR));
-			loadRecords();
+			this.migrateOldLogs();
+			this.loadTotalRecordCount();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
 	}
 
-	/**
-	 * 从本地目录加载所有已保存的 JSON 记录。
-	 */
-	private void loadRecords() {
-		try (Stream<java.nio.file.Path> paths = Files.list(Paths.get(RECORD_DIR))) {
-			paths.filter(path -> path.toString().endsWith(".json"))
-				 .forEach(path -> {
-					try {
-						String content = new String(Files.readAllBytes(path));
-						Timing timing = this.gson.fromJson(content, Timing.class);
-						String fileName = path.getFileName().toString().replace(".json", "");
-						this.recordMap.put(fileName, timing);
-					} catch (IOException e) {
-						e.printStackTrace();
-					}
-				});
+    private void loadTotalRecordCount() {
+		Path dir = Paths.get(RECORD_DIR);
+		if (!Files.exists(dir)) {
+			return;
+		}
+		try (Stream<Path> paths = Files.list(dir)) {
+			List<Path> binFiles = paths
+				.filter(p -> p.toString().endsWith(".requests.bin"))
+				.collect(java.util.stream.Collectors.toList());
+			for (Path binPath : binFiles) {
+				try (BinaryRequestLog log = new BinaryRequestLog(binPath)) {
+					String modelId = binPath.getFileName().toString().replace(".requests.bin", "");
+					this.totalRecordCount.addAndGet(log.getRecordCount());
+					TokenSummaryEntry entry = new TokenSummaryEntry();
+					entry.setModelId(modelId);
+					entry.setTotalCacheTokens(log.getTotalCacheTokens());
+					entry.setTotalPromptTokens(log.getTotalPromptTokens());
+					entry.setTotalPredictedTokens(log.getTotalPredictedTokens());
+					entry.setTotalTokens(log.getTotalPromptTokens() + log.getTotalPredictedTokens());
+					entry.setTotalPromptMs(log.getTotalPromptMs());
+					entry.setTotalPredictedMs(log.getTotalPredictedMs());
+					entry.setTotalDraftTokens(log.getTotalDraftTokens());
+					entry.setTotalDraftAccepted(log.getTotalDraftAccepted());
+					this.tokenSummaryCache.put(modelId, entry);
+				} catch (Exception ignore) {
+				}
+			}
+		} catch (IOException ignore) {
+		}
+    }
+
+    public long getTotalRecordCount() {
+		return this.totalRecordCount.get();
+	}
+
+    public List<TokenSummaryEntry> getTokenSummary() {
+		return new ArrayList<>(this.tokenSummaryCache.values());
+	}
+
+	private void updateTokenSummary(String modelId, RequestLogRecord record) {
+		TokenSummaryEntry entry = this.tokenSummaryCache.computeIfAbsent(modelId, id -> {
+			TokenSummaryEntry e = new TokenSummaryEntry();
+			e.setModelId(id);
+			return e;
+		});
+		entry.setTotalCacheTokens(entry.getTotalCacheTokens() + record.cacheN);
+		entry.setTotalPromptTokens(entry.getTotalPromptTokens() + record.promptN);
+		entry.setTotalPredictedTokens(entry.getTotalPredictedTokens() + record.predictedN);
+		entry.setTotalTokens(entry.getTotalPromptTokens() + entry.getTotalPredictedTokens());
+		entry.setTotalPromptMs(entry.getTotalPromptMs() + record.promptMs);
+		entry.setTotalPredictedMs(entry.getTotalPredictedMs() + record.predictedMs);
+		entry.setTotalDraftTokens(entry.getTotalDraftTokens() + record.draftN);
+		entry.setTotalDraftAccepted(entry.getTotalDraftAccepted() + record.draftNAccepted);
+	}
+
+    private BinaryRequestLog getLog(String modelId) throws IOException {
+        return this.logMap.computeIfAbsent(modelId, id -> {
+            try {
+                return new BinaryRequestLog(Paths.get(RECORD_DIR + id + ".requests.bin"));
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private static byte toEndpointByte(String endpoint) {
+        if (endpoint == null) return 0;
+        if (endpoint.contains("chat/completions")) return 0;
+        if (endpoint.contains("completions")) return 1;
+        if (endpoint.contains("embed")) return 2;
+        if (endpoint.contains("messages")) return 3;
+        if (endpoint.contains("/api/chat")) return 4;
+        if (endpoint.contains("/api/embed")) return 5;
+        if (endpoint.contains("generate")) return 6;
+        return 0;
+    }
+
+    private static byte toStatusByte(ActiveRequest.RequestStatus status) {
+        if (status == null) return 1;
+        switch (status) {
+            case CREATED: return 0;
+            case COMPLETED: return 1;
+            case FAILED: return 2;
+            case PROXYING: return 4;
+            default: return 1;
+        }
+    }
+
+    private static byte toPhaseByte(ActiveRequest.Phase phase) {
+        if (phase == null) return 1;
+        switch (phase) {
+            case PREFILL: return 0;
+            case GENERATION: return 1;
+            default: return 1;
+        }
+    }
+
+    /**
+     * 启动时自动迁移旧的 .requests.log 和 .json 文件到 .requests.bin 二进制格式。
+     * 迁移成功后，将旧文件移动到 bak/ 目录。
+     */
+	private void migrateOldLogs() {
+		Path dir = Paths.get(RECORD_DIR);
+		if (!Files.exists(dir)) {
+			return;
+		}
+		Path bakDir = dir.resolve("bak");
+		try {
+			Files.createDirectories(bakDir);
+		} catch (IOException ignore) {
+		}
+
+		try (Stream<Path> paths = Files.list(dir)) {
+			List<Path> files = paths
+				.filter(p -> p.toString().endsWith(".requests.log") || p.toString().endsWith(".json"))
+				.collect(java.util.stream.Collectors.toList());
+
+			for (Path filePath : files) {
+				migrateOneFile(filePath, bakDir);
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
+		}
+	}
+	/**
+	 * 	兼容旧的文本日志内容，转为二进制文件。
+	 */
+	private void migrateOneFile(Path filePath, Path bakDir) {
+		String fileName = filePath.getFileName().toString();
+
+		if (fileName.endsWith(".requests.log")) {
+			String modelId = fileName.replace(".requests.log", "");
+			Path binPath = filePath.resolveSibling(modelId + ".requests.bin");
+			try {
+				List<String> lines = Files.readAllLines(filePath);
+				try (BinaryRequestLog log = new BinaryRequestLog(binPath)) {
+					for (String line : lines) {
+						if (line == null || line.trim().isEmpty()) continue;
+						try {
+							log.appendFromJson(line);
+						} catch (Exception ignore) {
+						}
+					}
+				}
+				Files.move(filePath, bakDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		} else if (fileName.endsWith(".json")) {
+			try {
+				Files.move(filePath, bakDir.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 	}
 
@@ -81,77 +225,40 @@ public class LlamaRecordService {
 	 * @return 解析出的本次 Timing 数据
 	 */
 	public Timing handleStream(String modelId, String json, String requestId) {
-		synchronized (this) {
-			Timing timing = this.recordMap.computeIfAbsent(modelId, k -> new Timing());
-			Timing data = null;
-			try {
-				JsonObject root = JsonParser.parseString(json).getAsJsonObject();
-				if (root.has("timings")) {
-					data = this.gson.fromJson(root.get("timings"), Timing.class);
-
-					timing.setCache_n(timing.getCache_n() + data.getCache_n());
-					timing.setPrompt_n(timing.getPrompt_n() + data.getPrompt_n());
-					timing.setPrompt_ms(timing.getPrompt_ms() + data.getPrompt_ms());
-					timing.setPrompt_per_token_ms(timing.getPrompt_per_token_ms() + data.getPrompt_per_token_ms());
-					timing.setPrompt_per_second(timing.getPrompt_per_second() + data.getPrompt_per_second());
-					timing.setPredicted_n(timing.getPredicted_n() + data.getPredicted_n());
-					timing.setPredicted_ms(timing.getPredicted_ms() + data.getPredicted_ms());
-					timing.setPredicted_per_token_ms(timing.getPredicted_per_token_ms() + data.getPredicted_per_token_ms());
-					timing.setPredicted_per_second(timing.getPredicted_per_second() + data.getPredicted_per_second());
-					timing.setDraft_n(timing.getDraft_n() + data.getDraft_n());
-					timing.setDraft_n_accepted(timing.getDraft_n_accepted() + data.getDraft_n_accepted());
-					this.recordTiming(modelId, timing, data);
-				} else if (requestId != null && root.has("usage")) {
-					this.recordUsage(requestId, modelId, root.getAsJsonObject("usage"));
-				}
-			} catch (Exception e) {
-				e.printStackTrace();
+		Timing data = null;
+		try {
+			JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+			if (root.has("timings")) {
+				data = this.gson.fromJson(root.get("timings"), Timing.class);
+				this.recordTiming(modelId, data);
+			} else if (requestId != null && root.has("usage")) {
+				this.recordUsage(requestId, modelId, root.getAsJsonObject("usage"));
 			}
-			return data;
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
+		return data;
 	}
 
 	/**
-	 * 从 OpenAI 格式的 usage 字段提取 token 数据，写入 .requests.log。
+	 * 从 OpenAI 格式的 usage 字段提取 token 数据，写入二进制日志。
 	 * 用于远程节点代理场景（无 timings，只有 usage）。
 	 */
 	public void recordUsage(String requestId, String modelId, JsonObject usage) {
 		if (requestId == null || modelId == null || usage == null) return;
-		String logPath = RECORD_DIR + modelId + ".requests.log";
 		try {
-			Map<String, Object> record = new LinkedHashMap<>();
-			record.put("requestId", requestId);
-			record.put("modelId", modelId);
-			record.put("endpoint", "");
-			record.put("wallTime", System.currentTimeMillis());
-			record.put("startTime", System.currentTimeMillis());
-			record.put("elapsedMs", 0);
-			record.put("status", "COMPLETED");
-			record.put("phase", "GENERATION");
-
-			JsonObject timing = new JsonObject();
-			int cacheN = getJsonInt(usage, "prompt_cache_hit_tokens", 0);
-			int promptN = getJsonInt(usage, "prompt_tokens", 0);
-			int predictedN = getJsonInt(usage, "completion_tokens", 0);
-			timing.addProperty("cache_n", cacheN);
-			timing.addProperty("prompt_n", promptN);
-			timing.addProperty("predicted_n", predictedN);
-			timing.addProperty("prompt_ms", 0);
-			timing.addProperty("predicted_ms", 0);
-			timing.addProperty("prompt_per_token_ms", 0);
-			timing.addProperty("predicted_per_token_ms", 0);
-			timing.addProperty("prompt_per_second", 0);
-			timing.addProperty("predicted_per_second", 0);
-			timing.addProperty("draft_n", 0);
-			timing.addProperty("draft_n_accepted", 0);
-			record.put("timing", timing);
-
-			String line = this.gson.toJson(record);
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(logPath, true))) {
-				writer.write(line);
-				writer.newLine();
-			}
-		} catch (IOException e) {
+			RequestLogRecord record = new RequestLogRecord();
+			record.startTime = System.currentTimeMillis();
+			record.endpoint = toEndpointByte("");
+			record.status = 1;
+			record.phase = 1;
+			record.cacheN = getJsonInt(usage, "prompt_cache_hit_tokens", 0);
+			record.promptN = getJsonInt(usage, "prompt_tokens", 0);
+            record.predictedN = getJsonInt(usage, "completion_tokens", 0);
+			this.getLog(modelId).append(record);
+			this.totalRecordCount.incrementAndGet();
+			this.updateTokenSummary(modelId, record);
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
@@ -168,75 +275,70 @@ public class LlamaRecordService {
 	}
 
 	/**
-	 * 根据模型ID获取累计性能记录。
-	 * 
+	 * 根据模型ID获取累计性能记录（从二进制日志 header 读取）。
+	 *
 	 * @param modelId 模型ID
 	 * @return 累计的 Timing 记录，不存在则返回 null
 	 */
 	public Timing getRecord(String modelId) {
-		return this.recordMap.get(modelId);
+		Path binPath = Paths.get(RECORD_DIR + modelId + ".requests.bin");
+		if (!Files.exists(binPath)) {
+			return null;
+		}
+		try (BinaryRequestLog log = new BinaryRequestLog(binPath)) {
+			Timing timing = new Timing();
+			timing.setCache_n((int) log.getTotalCacheTokens());
+			timing.setPrompt_n((int) log.getTotalPromptTokens());
+			timing.setPrompt_ms(log.getTotalPromptMs());
+			timing.setPredicted_n((int) log.getTotalPredictedTokens());
+			timing.setPredicted_ms(log.getTotalPredictedMs());
+			timing.setDraft_n((int) log.getTotalDraftTokens());
+			timing.setDraft_n_accepted((int) log.getTotalDraftAccepted());
+			return timing;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
 	}
 
 	/**
 	 * 记录一次完整的请求记录，包含包裹了 Timing 的 ActiveRequest。
-	 * 追加写入 cache/record/{modelId}.requests.log，每行一个 JSON 对象。
+	 * 追加写入 cache/record/{modelId}.requests.bin。
 	 */
 	public void recordRequest(ActiveRequest request) {
 		if (request == null || request.getModelId() == null) return;
-		String logPath = RECORD_DIR + request.getModelId() + ".requests.log";
 		try {
-			Map<String, Object> record = new LinkedHashMap<>();
-			record.put("requestId", request.getRequestId());
-			record.put("modelId", request.getModelId());
-			record.put("endpoint", request.getEndpoint());
-			record.put("startTime", request.getStartTime());
-			record.put("elapsedMs", request.elapsedMs());
-			record.put("status", request.getStatus().name());
-			record.put("phase", request.getPhase().name());
-			if (request.getTiming() != null) {
-				record.put("timing", request.getTiming());
+			RequestLogRecord record = new RequestLogRecord();
+			record.startTime = request.getStartTime();
+			record.endpoint = toEndpointByte(request.getEndpoint());
+			record.status = toStatusByte(request.getStatus());
+			record.phase = toPhaseByte(request.getPhase());
+			Timing timing = request.getTiming();
+			if (timing != null) {
+				record.cacheN = timing.getCache_n();
+				record.promptN = timing.getPrompt_n();
+				record.promptMs = (float) timing.getPrompt_ms();
+				record.promptPerTokenMs = (float) timing.getPrompt_per_token_ms();
+				record.promptPerSecond = (float) timing.getPrompt_per_second();
+				record.predictedN = timing.getPredicted_n();
+				record.predictedMs = (float) timing.getPredicted_ms();
+				record.predictedPerTokenMs = (float) timing.getPredicted_per_token_ms();
+				record.predictedPerSecond = (float) timing.getPredicted_per_second();
+				record.draftN = timing.getDraft_n();
+				record.draftNAccepted = timing.getDraft_n_accepted();
 			}
-			String line = this.gson.toJson(record);
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(logPath, true))) {
-				writer.write(line);
-				writer.newLine();
-			}
-		} catch (IOException e) {
+      getLog(request.getModelId()).append(record);
+			this.totalRecordCount.incrementAndGet();
+			this.updateTokenSummary(request.getModelId(), record);
+		} catch (Exception e) {
 			e.printStackTrace();
 		}
 	}
 
 	/**
-	 * 将累积的 timings 数据以 JSON 格式覆盖写入本地文件。
-	 * 同时将本次请求的 timings 逐行追加到日志文件。
-	 * 
-	 * @param modelId    模型ID，用作文件名
-	 * @param timing     累计的性能数据，写入 .json
-	 * @param requestTiming 本次请求的原始性能数据，逐行追加到 .log
+	 * 此方法已废弃，数据由 recordRequest 统一写入。
 	 */
-	private void recordTiming(String modelId, Timing timing, Timing requestTiming) {
-		if (modelId == null || timing == null) {
-			return;
-		}
-		// 累计计算
-		String filePath = RECORD_DIR + modelId + ".json";
-		String content = this.gson.toJson(timing);
-		
-		try (BufferedWriter writer = new BufferedWriter(new FileWriter(filePath, false))) {
-			writer.write(content);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		// 请求记录，以模型名字.log 逐行追加
-		if (requestTiming != null) {
-			String logPath = RECORD_DIR + modelId + ".log";
-			String logLine = this.gson.toJson(requestTiming);
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(logPath, true))) {
-				writer.write(logLine);
-				writer.newLine();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-		}
+	private void recordTiming(String modelId, Timing requestTiming) {
+		// No-op: recordRequest 在请求结束时统一写入，避免重复计数
 	}
 }

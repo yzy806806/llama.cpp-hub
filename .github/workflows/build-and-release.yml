@@ -267,7 +267,7 @@ jobs:
             return 0
           }
           try_download "WIN_CUDA12" "llama-{tag}-bin-win-cuda-12.4-x64.zip" "zip" "cudart-llama-bin-win-cuda-12.4-x64.zip"
-          try_download "WIN_CUDA13" "llama-{tag}-bin-win-cuda-13.1-x64.zip" "zip" "cudart-llama-bin-win-cuda-13.1-x64.zip"
+          try_download "WIN_CUDA13" "llama-{tag}-bin-win-cuda-13.3-x64.zip" "zip" "cudart-llama-bin-win-cuda-13.3-x64.zip"
           try_download "WIN_VULKAN" "llama-{tag}-bin-win-vulkan-x64.zip" "zip" ""
           try_download "WIN_HIP" "llama-{tag}-bin-win-hip-radeon-x64.zip" "zip" ""
           try_download "UBUNTU_VULKAN" "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz" "tar" ""

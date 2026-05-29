@@ -86,11 +86,24 @@ public class UsageReportController implements BaseController {
 		}
 		this.assertRequestMethod(request.method() != HttpMethod.GET, "只支持GET请求");
 		try {
-			Object data = UsageReportService.getInstance().getRequestLogs();
+			Map<String, String> params = ParamTool.getQueryParam(request.uri());
+			int page = parseInt(params.get("page"), 1);
+			int pageSize = parseInt(params.get("pageSize"), 30);
+			String modelId = params.get("modelId");
+			Object data = UsageReportService.getInstance().getRequestLogs(modelId, page, pageSize);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 		} catch (Exception e) {
 			logger.info("获取请求记录时发生错误", e);
 			LlamaServer.sendJsonResponse(ctx, ApiResponse.error("获取请求记录失败: " + e.getMessage()));
+		}
+	}
+
+	private int parseInt(String value, int defaultValue) {
+		if (value == null || value.trim().isEmpty()) return defaultValue;
+		try {
+			return Integer.parseInt(value.trim());
+		} catch (NumberFormatException e) {
+			return defaultValue;
 		}
 	}
 
