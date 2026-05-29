@@ -9,13 +9,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Queue;
 import java.util.Set;
 
 /**
@@ -32,12 +30,6 @@ public final class HuggingFaceSearcher {
 
     private static final String HF_BASE = "https://huggingface.co";
     private static final String HF_MIRROR_BASE = "https://hf-mirror.com";
-
-    private static final Set<String> EXCLUDED_DIRS = Set.of(
-        ".git", "docs", "tests", "scripts", ".github", "notebooks",
-        "examples", "src", "lib", "build", ".vscode", ".idea",
-        "images", "figures", "artifacts", "tmp", "temp", ".cache"
-    );
 
     // ---------------------------------------------------------------------------
     // Records
@@ -288,57 +280,49 @@ public final class HuggingFaceSearcher {
     // Internal – repo tree (paginated)
     // ---------------------------------------------------------------------------
 
-    private static List<GgufFile> crawlGgufTargeted(String base, String repoId, String revision,
-                                                       int timeout)
+   private static List<GgufFile> crawlGgufTargeted(String base, String repoId, String revision,
+                                                        int timeout)
             throws IOException {
         List<GgufFile> files = new ArrayList<>();
-        Queue<String> queue = new ArrayDeque<>();
-        queue.add("");
-        Set<String> visited = new LinkedHashSet<>();
+        String cursor = null;
+        while (true) {
+            InternalPage page = fetchTreeRecursive(base, repoId, revision, cursor, timeout);
+            for (JsonElement el : page.entries) {
+                if (el == null || !el.isJsonObject()) continue;
+                JsonObject obj = el.getAsJsonObject();
+                String type = getString(obj, "type");
+                String path = getString(obj, "path");
+                if (type == null || path == null) continue;
 
-        while (!queue.isEmpty()) {
-            String dir = queue.poll();
-            if (!visited.add(dir)) continue;
-
-            String cursor = null;
-            while (true) {
-                InternalPage page = fetchTreePage(base, repoId, revision, dir, cursor, timeout);
-                for (JsonElement el : page.entries) {
-                    if (el == null || !el.isJsonObject()) continue;
-                    JsonObject obj = el.getAsJsonObject();
-                    String type = getString(obj, "type");
-                    String path = getString(obj, "path");
-                    if (type == null || path == null) continue;
-
-                    if ("file".equalsIgnoreCase(type) && path.toLowerCase(Locale.ROOT).endsWith(".gguf")) {
-                        Long size = parseLongOrNull(getNumberString(obj, "size"));
-                        JsonObject lfs = getObject(obj, "lfs");
-                        String lfsOid = lfs != null ? getString(lfs, "oid") : null;
-                        Long lfsSize = lfs != null ? parseLongOrNull(getNumberString(lfs, "size")) : null;
-                        String downloadUrl = buildResolveUrl(base, repoId, revision, path);
-                        files.add(new GgufFile(path, size, lfsOid, lfsSize, downloadUrl));
-                    } else if ("folder".equalsIgnoreCase(type)) {
-                        String dirName = extractDirName(path);
-                        if (dirName != null && !EXCLUDED_DIRS.contains(dirName.toLowerCase(Locale.ROOT))) {
-                            queue.add(stripTrailingSlash(dirName));
-                        }
-                    }
+                if ("file".equalsIgnoreCase(type) && path.toLowerCase(Locale.ROOT).endsWith(".gguf")) {
+                    Long size = parseLongOrNull(getNumberString(obj, "size"));
+                    JsonObject lfs = getObject(obj, "lfs");
+                    String lfsOid = lfs != null ? getString(lfs, "oid") : null;
+                    Long lfsSize = lfs != null ? parseLongOrNull(getNumberString(lfs, "size")) : null;
+                    String downloadUrl = buildResolveUrl(base, repoId, revision, path);
+                    files.add(new GgufFile(path, size, lfsOid, lfsSize, downloadUrl));
                 }
-                cursor = page.nextCursor;
-                if (cursor == null || cursor.isBlank()) break;
             }
+            cursor = page.nextCursor;
+            if (cursor == null || cursor.isBlank()) break;
         }
         return files;
     }
 
-    private static InternalPage fetchTreePage(String base, String repoId, String revision,
-                                               String path, String cursor, int timeout)
+    private static InternalPage fetchTreeRecursive(String base, String repoId, String revision,
+                                                    String cursor, int timeout)
+            throws IOException {
+        return fetchTreePageImpl(base, repoId, revision, "", cursor, true, timeout);
+    }
+
+    private static InternalPage fetchTreePageImpl(String base, String repoId, String revision,
+                                                   String path, String cursor, boolean recursive, int timeout)
             throws IOException {
         StringBuilder url = new StringBuilder();
         url.append(base).append("/api/models/").append(repoId)
            .append("/tree/").append(revision).append("/")
            .append(encodePathSegments(path))
-           .append("?recursive=false&limit=1000");
+           .append("?recursive=").append(recursive).append("&limit=1000");
         if (cursor != null && !cursor.isBlank())
             url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8).replace("+", "%20"));
 
@@ -351,21 +335,6 @@ public final class HuggingFaceSearcher {
         if (nextCursor == null || nextCursor.isBlank())
             nextCursor = parseCursorFromLinkHeader(resp.header("Link"));
         return new InternalPage(entries, nextCursor);
-    }
-
-    private static String extractDirName(String path) {
-        if (path == null) return null;
-        String p = path;
-        while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
-        int lastSlash = p.lastIndexOf('/');
-        if (lastSlash < 0) return p;
-        return p.substring(0, lastSlash + 1);
-    }
-
-    private static String stripTrailingSlash(String p) {
-        if (p == null) return "";
-        while (p.endsWith("/")) p = p.substring(0, p.length() - 1);
-        return p;
     }
 
     private static String detectReadmePath(JsonObject modelInfo) {
