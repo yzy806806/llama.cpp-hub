@@ -36,9 +36,10 @@ public class StreamableHttpTransportHandler {
 		try {
 			McpParsedRequest parsedRequest = this.protocolHandler.parseRequest(request, requestSessionId, "MCP Streamable");
 			String sessionId = requestSessionId;
+			McpSession newSession = null;
 			if ("initialize".equals(parsedRequest.getMethod())) {
-				McpSession session = this.server.createSession(serviceKey, false);
-				sessionId = session.getId();
+				newSession = this.server.createSession(serviceKey, false);
+				sessionId = newSession.getId();
 				logger.info("MCP Streamable创建会话: serviceKey={}, sessionId={}", serviceKey, sessionId);
 			} else if (sessionId == null || sessionId.isBlank()) {
 				logger.info("MCP Streamable按无状态请求处理: serviceKey={}", serviceKey);
@@ -53,6 +54,10 @@ public class StreamableHttpTransportHandler {
 				}
 			}
 			McpProtocolResult result = this.protocolHandler.processRequest(serviceKey, sessionId, parsedRequest);
+
+			if (newSession != null && result.getSessionHeaders() != null) {
+				newSession.setHeaders(result.getSessionHeaders());
+			}
 
 			if (result.hasResponse()) {
 				this.server.sendJsonHttp(ctx, HttpResponseStatus.OK, result.getResponse(), sessionId);

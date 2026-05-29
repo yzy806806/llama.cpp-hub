@@ -1,6 +1,7 @@
 package org.mark.test.mcp.tools;
 
 import java.io.IOException;
+import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,7 +49,7 @@ public class ReadStaticImageTool implements IMCPTool {
 	}
 
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		String absolutePath = this.getAbsolutePath(arguments);
 		if (absolutePath == null || absolutePath.isBlank()) {
 			return new McpMessage().addText("图片读取失败: absolutePath不能为空");

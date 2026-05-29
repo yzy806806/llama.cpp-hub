@@ -47,6 +47,9 @@ public class SseTransportHandler {
 		try {
 			McpParsedRequest parsedRequest = this.protocolHandler.parseRequest(request, sessionId, "MCP SSE");
 			McpProtocolResult result = this.protocolHandler.processRequest(serviceKey, sessionId, parsedRequest);
+			if (result.getSessionHeaders() != null) {
+				session.setHeaders(result.getSessionHeaders());
+			}
 			if (result.hasResponse()) {
 				this.server.sendSseData(sessionId, result.getResponse());
 			}

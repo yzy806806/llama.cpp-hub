@@ -8,13 +8,14 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.*;
-import io.netty.handler.ssl.SslHandler;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandshakeCompletionEvent;
+import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.util.concurrent.GenericFutureListener;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
+
 
 import org.mark.llamacpp.server.LlamaServer;
 import org.mark.llamacpp.server.struct.ProxyConfigData;
@@ -62,6 +63,19 @@ public final class NettyHttpUtils {
     });
 
     private NettyHttpUtils() {}
+
+    /**
+     * Creates an SSL context that trusts all certificates (including self-signed).
+     */
+    private static SslContext createInsecureSslContext() {
+        try {
+            return SslContextBuilder.forClient()
+                    .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create SSL context", e);
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Response record
@@ -366,35 +380,35 @@ public final class NettyHttpUtils {
                                 ChannelPipeline pipeline = ch.pipeline();
                                 pipeline.addLast(new ReadTimeoutHandler(readTimeout.toMillis(), TimeUnit.MILLISECONDS));
 
-                                if (proxyConfig != null && isHttps) {
-                                    pipeline.addLast(new HttpClientCodec());
-                                    pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
-                                    pipeline.addLast(new ConnectProxyHandler(
-                                            requestTarget, hostHeader, host, port,
-                                            proxyConfig, state.headers(), state.requestBody(), state.method(),
-                                            future, readTimeout));
-                                } else if (isHttps) {
-                                    try {
-                                      SSLContext sslContext = SSLContext.getDefault();
-                                         SSLEngine sslEngine = sslContext.createSSLEngine(host, port);
-                                         sslEngine.setUseClientMode(true);
-                                        pipeline.addLast(new SslHandler(sslEngine));
-                                    } catch (Exception e) {
-                                        future.completeExceptionally(new IOException("Failed to create SSL context", e));
-                                        return;
-                                    }
-                                    pipeline.addLast(new HttpClientCodec());
-                                    pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
-                                    pipeline.addLast(new HttpChannelHandler(
-                                            hostHeader, requestTarget, proxyConfig, state.headers(),
-                                            state.requestBody(), state.method(), future, true));
-                                } else {
-                                    pipeline.addLast(new HttpClientCodec());
-                                    pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
-                                    pipeline.addLast(new HttpChannelHandler(
-                                            hostHeader, requestTarget, proxyConfig, state.headers(),
-                                            state.requestBody(), state.method(), future, false));
-                                }
+                               if (proxyConfig != null && isHttps) {
+                                     pipeline.addLast(new HttpClientCodec());
+                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
+                                     pipeline.addLast(new ConnectProxyHandler(
+                                             requestTarget, hostHeader, host, port,
+                                             proxyConfig, state.headers(), state.requestBody(), state.method(),
+                                             future, readTimeout));
+                                 } else if (isHttps) {
+                                     try {
+                                         SslContext sslContext = createInsecureSslContext();
+                                         pipeline.addLast(sslContext.newHandler(ch.alloc(), host, port));
+                                     } catch (Exception e) {
+                                         future.completeExceptionally(new IOException("Failed to create SSL context", e));
+                                         return;
+                                     }
+                                     pipeline.addLast(new HttpClientCodec());
+                                     pipeline.addLast(new HttpContentDecompressor());
+                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
+                                     pipeline.addLast(new HttpChannelHandler(
+                                             hostHeader, requestTarget, proxyConfig, state.headers(),
+                                             state.requestBody(), state.method(), future, true));
+                                 } else {
+                                     pipeline.addLast(new HttpClientCodec());
+                                     pipeline.addLast(new HttpContentDecompressor());
+                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
+                                     pipeline.addLast(new HttpChannelHandler(
+                                             hostHeader, requestTarget, proxyConfig, state.headers(),
+                                             state.requestBody(), state.method(), future, false));
+                                 }
                             }
                         })
                         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.toMillis());
@@ -614,12 +628,10 @@ public final class NettyHttpUtils {
                     ctx.pipeline().remove(HttpObjectAggregator.class);
 
                     try {
-                        SSLContext sslContext = SSLContext.getDefault();
-                        SSLEngine sslEngine = sslContext.createSSLEngine(targetHost, targetPort);
-                        sslEngine.setUseClientMode(true);
-
-                        ctx.pipeline().addFirst(new SslHandler(sslEngine));
+                        SslContext sslContext = createInsecureSslContext();
+                        ctx.pipeline().addFirst(sslContext.newHandler(ctx.channel().alloc(), targetHost, targetPort));
                         ctx.pipeline().addLast(new HttpClientCodec());
+                        ctx.pipeline().addLast(new HttpContentDecompressor());
                         ctx.pipeline().addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
                         ctx.pipeline().addLast(new HttpChannelHandler(
                                 hostHeader, requestTarget, null, headers, requestBody, method, future, true));
@@ -710,8 +722,10 @@ public final class NettyHttpUtils {
             }
 
             request.headers().set(HttpHeaderNames.HOST, hostHeader);
-            request.headers().set(HttpHeaderNames.USER_AGENT, "Mozilla/5.0 (compatible; NettyHttpUtils/1.0)");
+            request.headers().set(HttpHeaderNames.USER_AGENT, UserAgentUtils.random());
             request.headers().set(HttpHeaderNames.ACCEPT, "*/*");
+            request.headers().set(HttpHeaderNames.ACCEPT_ENCODING, "gzip");
+            
 
             if (requestBody != null) {
                 request.headers().set(HttpHeaderNames.CONTENT_LENGTH, requestBody.length);
@@ -938,30 +952,28 @@ public final class NettyHttpUtils {
                                 ChannelPipeline pipeline = ch.pipeline();
                                 pipeline.addLast(new ReadTimeoutHandler(readTimeout.toMillis(), TimeUnit.MILLISECONDS));
 
-                                if (proxyConfig != null && isHttps) {
-                                    pipeline.addLast(new HttpClientCodec());
-                                    pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
-                                    pipeline.addLast(new DownloadConnectProxyHandler(
-                                            requestTarget, hostHeader, host, port,
-                                            proxyConfig, headers, targetFile, cancelled, progressListener,
-                                            future, readTimeout));
-                                } else {
-                                    if (isHttps) {
-                                        try {
-                                            SSLContext sslContext = SSLContext.getDefault();
-                                            SSLEngine sslEngine = sslContext.createSSLEngine(host, port);
-                                            sslEngine.setUseClientMode(true);
-                                            pipeline.addLast(new SslHandler(sslEngine));
-                                        } catch (Exception e) {
-                                            future.completeExceptionally(new IOException("Failed to create SSL context", e));
-                                            return;
-                                        }
-                                    }
-                                    pipeline.addLast(new HttpClientCodec());
-                                    pipeline.addLast(new DownloadToFileHandler(
-                                            host, hostHeader, requestTarget, proxyConfig, headers,
-                                            targetFile, cancelled, progressListener, future, readTimeout, isHttps));
-                                }
+                              if (proxyConfig != null && isHttps) {
+                                     pipeline.addLast(new HttpClientCodec());
+                                     pipeline.addLast(new HttpObjectAggregator(MAX_AGGREGATE_LENGTH));
+                                     pipeline.addLast(new DownloadConnectProxyHandler(
+                                             requestTarget, hostHeader, host, port,
+                                             proxyConfig, headers, targetFile, cancelled, progressListener,
+                                             future, readTimeout));
+                                 } else {
+                                     if (isHttps) {
+                                         try {
+                                             SslContext sslContext = createInsecureSslContext();
+                                             pipeline.addLast(sslContext.newHandler(ch.alloc(), host, port));
+                                         } catch (Exception e) {
+                                             future.completeExceptionally(new IOException("Failed to create SSL context", e));
+                                             return;
+                                         }
+                                     }
+                                     pipeline.addLast(new HttpClientCodec());
+                                     pipeline.addLast(new DownloadToFileHandler(
+                                             host, hostHeader, requestTarget, proxyConfig, headers,
+                                             targetFile, cancelled, progressListener, future, readTimeout, isHttps));
+                                 }
                             }
                         })
                         .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, (int) connectTimeout.toMillis());
@@ -1062,10 +1074,8 @@ public final class NettyHttpUtils {
                     ctx.pipeline().remove(HttpClientCodec.class);
                     ctx.pipeline().remove(HttpObjectAggregator.class);
                     try {
-                        SSLContext sslContext = SSLContext.getDefault();
-                        SSLEngine sslEngine = sslContext.createSSLEngine(targetHost, targetPort);
-                        sslEngine.setUseClientMode(true);
-                        ctx.pipeline().addFirst(new SslHandler(sslEngine));
+                        SslContext sslContext = createInsecureSslContext();
+                        ctx.pipeline().addFirst(sslContext.newHandler(ctx.channel().alloc(), targetHost, targetPort));
                         ctx.pipeline().addLast(new HttpClientCodec());
                         ctx.pipeline().addLast(new DownloadToFileHandler(
                                 targetHost, hostHeader, requestTarget, null, headers,

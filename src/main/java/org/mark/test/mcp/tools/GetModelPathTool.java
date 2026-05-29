@@ -46,7 +46,7 @@ public class GetModelPathTool implements IMCPTool {
 	}
 
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		// logger.info("MCP工具执行: name={}, serviceKey={}", this.getMcpName(), serviceKey);
 		try {
 			return new McpMessage().addText(JsonUtil.toJson(this.buildResponse()));

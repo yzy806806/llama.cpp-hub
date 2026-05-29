@@ -1,5 +1,7 @@
 package org.mark.test.mcp;
 
+import java.util.Map;
+
 import org.mark.test.mcp.struct.McpToolInputSchema;
 import org.mark.test.mcp.struct.McpMessage;
 
@@ -15,5 +17,5 @@ public interface IMCPTool {
 
 	McpToolInputSchema getInputSchema();
 
-	McpMessage execute(String serviceKey, JsonObject arguments);
+	McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers);
 }

@@ -1266,6 +1266,10 @@
 		border-radius: var(--radius);
 		padding: 0.6rem;
 		box-shadow: var(--shadow-sm);
+		min-height: 100px;
+		max-height: 200px;
+		display: flex;
+		align-items: center;
 	}
         #hfHitsList .list-item:hover { box-shadow: var(--shadow-md); }
 	#hfHitsList .list-item-title {

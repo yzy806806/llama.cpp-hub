@@ -1,6 +1,7 @@
 package org.mark.test.mcp.tools.others;
 
 import java.time.ZonedDateTime;
+import java.util.Map;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
@@ -35,7 +36,7 @@ public class GetTimeTool implements IMCPTool {
 	}
 
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		String timezoneId = Optional.ofNullable(arguments)
 				.map(args -> args.has("timezone") ? args.get("timezone").getAsString() : null)
 				.orElse(null);

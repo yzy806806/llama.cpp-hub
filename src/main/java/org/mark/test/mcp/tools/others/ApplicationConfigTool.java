@@ -1,6 +1,7 @@
 package org.mark.test.mcp.tools.others;
  
 import java.io.IOException;
+import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,7 +40,7 @@ public class ApplicationConfigTool implements IMCPTool {
 	}
  
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		McpMessage message = new McpMessage();
 		String action = arguments.has("action") ? arguments.get("action").getAsString() : "";
  

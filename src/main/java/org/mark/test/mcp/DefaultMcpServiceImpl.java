@@ -1,5 +1,8 @@
 package org.mark.test.mcp;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.test.mcp.channel.McpParsedRequest;
 import org.mark.test.mcp.channel.McpProtocolException;
@@ -17,6 +20,9 @@ import org.mark.test.mcp.tools.ReadStaticImageTool;
 import org.mark.test.mcp.tools.others.ApplicationConfigTool;
 import org.mark.test.mcp.tools.file.WriteTextFileTool;
 import org.mark.test.mcp.tools.others.GetTimeTool;
+import org.mark.test.mcp.tools.others.FetchWebPageTool;
+import org.mark.test.mcp.tavily.tools.TavilySearchTool;
+import org.mark.test.mcp.tavily.tools.TavilyExtractTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,8 +53,11 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 	
 	
 	private static final String FILE_SERVICE_KEY = "llama_hub_file";
-	
-	
+
+
+	private static final String TAVILY_SERVICE_KEY = "tavily_search";
+
+
 	private final McpToolRegistry toolRegistry = new McpToolRegistry();
 	private final NettySseMcpServer nettyServer;
 
@@ -92,10 +101,15 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		this.registerTool(DEFAULT_SERVICE_KEY, new GetMcpServiceInfoTool());
 		this.registerTool(DEFAULT_SERVICE_KEY, new ApplicationConfigTool());
 		
-		this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
-		
-		// 写本地文件的
+        this.registerTool(DEFAULT_SERVICE_KEY, new GetTimeTool());
+        this.registerTool(DEFAULT_SERVICE_KEY, new FetchWebPageTool());
+
+        // 写本地文件的
 		this.registerTool(FILE_SERVICE_KEY, new WriteTextFileTool());
+
+        // Tavily 搜索
+		this.registerTool(TAVILY_SERVICE_KEY, new TavilySearchTool());
+		this.registerTool(TAVILY_SERVICE_KEY, new TavilyExtractTool());
 	}
 
 	@Override
@@ -136,7 +150,24 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		String method = body.has("method") && body.get("method").isJsonPrimitive() ? body.get("method").getAsString() : "";
 		JsonElement id = body.has("id") && body.get("id") != null && !body.get("id").isJsonNull() ? body.get("id") : null;
 		logger.info("{}消息解析完成: sessionId={}, method={}, id={}", transportLabel, sessionId, method, id == null ? "null" : id.toString());
-		return new McpParsedRequest(body, method, id);
+
+		Map<String, String> headers = this.extractCustomHeaders(request);
+		return new McpParsedRequest(body, method, id, headers);
+	}
+
+	private Map<String, String> extractCustomHeaders(FullHttpRequest request) {
+		Map<String, String> custom = new LinkedHashMap<>();
+		if (request == null) {
+			return custom;
+		}
+		request.headers().forEach(entry -> {
+			String name = entry.getKey().toString();
+			String lower = name.toLowerCase(java.util.Locale.ROOT);
+			if (lower.startsWith("x-")) {
+				custom.put(name, entry.getValue().toString());
+			}
+		});
+		return custom.isEmpty() ? null : custom;
 	}
 
 	private McpProtocolResult doProcessRequest(String serviceKey, String sessionId, McpParsedRequest parsedRequest) {
@@ -146,7 +177,11 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 		if ("initialize".equals(method)) {
 			JsonObject result = this.buildInitializeResult();
 			logger.info("MCP initialize响应: sessionId={}, protocolVersion={}", sessionId, MCP_PROTOCOL_VERSION);
-			return McpProtocolResult.respond(jsonResult(id, result));
+			Map<String, String> initHeaders = parsedRequest.getHeaders();
+			if (initHeaders != null && !initHeaders.isEmpty()) {
+				logger.info("MCP initialize携带自定义headers: sessionId={}, headers={}", sessionId, initHeaders.keySet());
+			}
+			return McpProtocolResult.respondWithHeaders(jsonResult(id, result), initHeaders);
 		}
 		if ("ping".equals(method)) {
 			logger.info("MCP收到ping请求: sessionId={}", sessionId);
@@ -196,7 +231,8 @@ public class DefaultMcpServiceImpl implements McpProtocolHandler {
 			JsonObject arguments = params.has("arguments") && params.get("arguments").isJsonObject() ? params.getAsJsonObject("arguments")
 					: new JsonObject();
 			logger.info("MCP tools/call参数: sessionId={}, toolName={}, arguments={}", sessionId, toolName, this.clip(JsonUtil.toJson(arguments), 4000));
-			McpMessage message = tool.execute(serviceKey, arguments);
+			Map<String, String> callHeaders = parsedRequest.getHeaders();
+			McpMessage message = tool.execute(serviceKey, arguments, callHeaders);
 			JsonArray content = message == null ? new JsonArray() : message.toJsonArray();
 			logger.info("MCP tools/call结果: sessionId={}, toolName={}, contentItems={}", sessionId, toolName, content.size());
 			JsonObject result = new JsonObject();

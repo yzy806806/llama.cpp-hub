@@ -69,7 +69,7 @@ public class WriteTextFileTool implements IMCPTool {
 	}
 
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		String content = this.getContent(arguments);
 		if (content == null) {
 			return new McpMessage().addText(JsonUtil.toJson(this.error("content不能为空")));

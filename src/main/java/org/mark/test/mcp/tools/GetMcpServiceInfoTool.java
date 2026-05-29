@@ -1,5 +1,7 @@
 package org.mark.test.mcp.tools;
 
+import java.util.Map;
+
 import org.mark.llamacpp.server.service.ComputerService;
 import org.mark.test.mcp.IMCPTool;
 import org.mark.test.mcp.struct.McpMessage;
@@ -41,7 +43,7 @@ public class GetMcpServiceInfoTool implements IMCPTool {
 	}
 
 	@Override
-	public McpMessage execute(String serviceKey, JsonObject arguments) {
+	public McpMessage execute(String serviceKey, JsonObject arguments, Map<String, String> headers) {
 		// logger.info("MCP工具执行: name={}, serviceKey={}", this.getMcpName(), serviceKey);
 		String cpuModel = ComputerService.getCPUModel();
 		int cpuCoreCount = ComputerService.getCPUCoreCount();
