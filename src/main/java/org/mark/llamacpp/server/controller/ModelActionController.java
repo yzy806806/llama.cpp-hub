@@ -9,10 +9,12 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -891,7 +893,7 @@ public class ModelActionController implements BaseController {
 				data.put("rawOutput", text);
 				try {
 					String safeModelId = modelId == null ? "unknown" : modelId.replaceAll("[^a-zA-Z0-9-_\\.]", "_");
-					String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+					String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 					String fileName = safeModelId + "_" + timestamp + ".txt";
 					File dir = new File("benchmarks");
 					if (!dir.exists()) {
@@ -999,7 +1001,7 @@ public class ModelActionController implements BaseController {
 							info.put("name", name);
 							info.put("size", f.length());
 							info.put("modified",
-									new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(f.lastModified())));
+									Instant.ofEpochMilli(f.lastModified()).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 							files.add(info);
 						}
 					}

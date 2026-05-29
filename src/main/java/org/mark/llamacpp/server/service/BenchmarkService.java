@@ -10,9 +10,11 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -209,7 +211,7 @@ public class BenchmarkService {
 	private File saveBenchmarkV2Record(String modelId, int promptTokens, int maxTokens, String llamaBinPath,
 			JsonObject timingsObj, List<String> deviceList, String cpu, Long ram, String cmd) throws Exception {
 		String safeModelId = (modelId == null ? "unknown" : modelId).replaceAll("[^a-zA-Z0-9-_\\.]", "_");
-		String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
+		String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 		String fileName = safeModelId + "_V2.jsonl";
 		File dir = new File("benchmarks");
 		if (!dir.exists()) {
