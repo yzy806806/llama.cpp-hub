@@ -126,9 +126,12 @@
                 </div>
               </div>
               <button id="micRecorderBtn" class="icon-button toolbar-icon-button" type="button" aria-label="录音" title="录音" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.composer.record">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-              </button>
-              <button id="sendBtn" class="icon-button send-toggle-button" type="button" aria-label="发送" title="发送" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.composer.send">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+               </button>
+             <button id="autoReplyBtn" class="icon-button toolbar-icon-button" type="button" aria-label="AI 帮答" title="AI 帮答" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.composer.auto_reply">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 13l.75 2.25L22 16l-2.25.75L19 19l-.75-2.25L16 16l2.25-.75L19 13z"/><path d="M5 17l.5 1.5L7 19l-1.5.5L5 21l-.5-1.5L3 19l1.5-.5L5 17z"/></svg>
+                </button>
+               <button id="sendBtn" class="icon-button send-toggle-button" type="button" aria-label="发送" title="发送" data-i18n-attr="aria-label,title" data-i18n="page.chat.main.composer.send">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               </button>
             </div>
@@ -379,6 +382,28 @@
                 <p class="settings-field-desc" data-i18n="page.chat.main.settings.templates.title_gen_model_desc">选择用于生成标题的模型，留空则使用当前对话模型</p>
                 <select id="titleGenModelSelect" class="drawer-input"></select>
               </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.templates.auto_reply_label">开启 AI 帮答</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.templates.auto_reply_toggle">AI 帮答</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.templates.auto_reply_desc">启用后，点击输入框旁的帮答按钮，AI 将根据对话上下文自动生成回复内容</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="autoReplyToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label for="autoReplyModelSelect" data-i18n="page.chat.main.settings.templates.auto_reply_model_label">帮答模型</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.templates.auto_reply_model_desc">选择用于生成帮答内容的模型，留空则使用当前对话模型</p>
+                <select id="autoReplyModelSelect" class="drawer-input"></select>
+              </div>
             </div>
           </div>
 
@@ -510,9 +535,11 @@
       streamRender: true,
       enableThinking: false,
       enableTimestamp: false,
-      enableTitleGen: false,
-      titleGenModel: '',
-      systemPrompt: '',
+     enableTitleGen: false,
+       titleGenModel: '',
+       enableAutoReply: true,
+       autoReplyModel: '',
+       systemPrompt: '',
       mcpServerUrls: [],
       search: '',
       privacyMode: false,
@@ -557,6 +584,13 @@
       const supported = isAudioSupported();
       els.micRecorderBtn.disabled = !supported;
       els.micRecorderBtn.title = supported ? window.I18N.t('page.chat.main.composer.record', '录音') : window.I18N.t('page.chat.main.status.audio_unsupported', '当前模型不支持音频');
+    }
+
+    function syncAutoReplyButton() {
+      if (!els.autoReplyBtn) {
+        return;
+      }
+      els.autoReplyBtn.style.display = state.enableAutoReply ? '' : 'none';
     }
 
     const els = {
@@ -634,7 +668,10 @@
       mcpServerList: document.getElementById('mcpServerList'),
       timestampToggle: document.getElementById('timestampToggle'),
       titleGenToggle: document.getElementById('titleGenToggle'),
-      titleGenModelSelect: document.getElementById('titleGenModelSelect')
+      titleGenModelSelect: document.getElementById('titleGenModelSelect'),
+      autoReplyBtn: document.getElementById('autoReplyBtn'),
+      autoReplyToggle: document.getElementById('autoReplyToggle'),
+      autoReplyModelSelect: document.getElementById('autoReplyModelSelect')
     };
 
     let mcpModule = null;
@@ -2657,6 +2694,28 @@
         }
         els.titleGenModelSelect.value = currentVal;
       }
+      if (els.autoReplyToggle) els.autoReplyToggle.checked = !!state.enableAutoReply;
+      if (els.autoReplyModelSelect) {
+        const autoReplyVal = state.autoReplyModel || '';
+        els.autoReplyModelSelect.innerHTML = '';
+        const autoReplyDefaultOpt = document.createElement('option');
+        autoReplyDefaultOpt.value = '';
+        autoReplyDefaultOpt.textContent = window.I18N.t('page.chat.main.settings.templates.auto_reply_model_default', '使用当前对话模型');
+        els.autoReplyModelSelect.appendChild(autoReplyDefaultOpt);
+        for (const opt of els.modelSelect.options) {
+          const clone = document.createElement('option');
+          clone.value = opt.value;
+          clone.textContent = opt.textContent;
+          els.autoReplyModelSelect.appendChild(clone);
+        }
+        if (autoReplyVal && !Array.from(els.autoReplyModelSelect.options).some(o => o.value === autoReplyVal)) {
+          const opt = document.createElement('option');
+          opt.value = autoReplyVal;
+          opt.textContent = autoReplyVal;
+          els.autoReplyModelSelect.insertBefore(opt, els.autoReplyModelSelect.firstChild.nextSibling);
+        }
+        els.autoReplyModelSelect.value = autoReplyVal;
+      }
       els.systemPromptInput.value = state.systemPrompt;
       resizeSystemPromptInput();
       els.searchInput.value = state.search;
@@ -2688,6 +2747,7 @@
       if (mcpModule) {
         mcpModule.render();
       }
+      syncAutoReplyButton();
     }
 
     function applySettingsInputsToState() {
@@ -2705,9 +2765,12 @@
       state.enableTimestamp = els.timestampToggle ? els.timestampToggle.checked : false;
       state.enableTitleGen = els.titleGenToggle ? els.titleGenToggle.checked : false;
       state.titleGenModel = els.titleGenModelSelect ? els.titleGenModelSelect.value : '';
+      state.enableAutoReply = els.autoReplyToggle ? els.autoReplyToggle.checked : true;
+      state.autoReplyModel = els.autoReplyModelSelect ? els.autoReplyModelSelect.value : '';
       state.systemPrompt = els.systemPromptInput.value;
       syncCurrentAssistantFromRuntimeState();
       renderThinkingMenu();
+      syncAutoReplyButton();
     }
 
     function renderThinkingMenu() {
@@ -2822,6 +2885,8 @@
         privacyMode: state.privacyMode,
         enableTitleGen: state.enableTitleGen,
         titleGenModel: state.titleGenModel,
+        enableAutoReply: state.enableAutoReply,
+        autoReplyModel: state.autoReplyModel,
         assistants: state.assistants,
         conversations: state.conversations.map(conversation => buildConversationSummaryPayload(conversation)),
         currentConversationId: state.currentConversationId
@@ -2979,6 +3044,8 @@
       state.privacyMode = typeof saved?.privacyMode === 'boolean' ? saved.privacyMode : false;
       state.enableTitleGen = typeof saved?.enableTitleGen === 'boolean' ? saved.enableTitleGen : false;
       state.titleGenModel = typeof saved?.titleGenModel === 'string' ? saved.titleGenModel : '';
+      state.enableAutoReply = typeof saved?.enableAutoReply === 'boolean' ? saved.enableAutoReply : true;
+      state.autoReplyModel = typeof saved?.autoReplyModel === 'string' ? saved.autoReplyModel : '';
       state.currentConversationId = typeof saved?.currentConversationId === 'string' ? saved.currentConversationId : '';
       const fallbackAssistantId = getFallbackAssistant()?.id || '';
       state.conversations = Array.isArray(saved?.conversations)
@@ -5195,6 +5262,105 @@
       }
     }
 
+    async function generateAutoReply() {
+      if (!state.enableAutoReply) {
+        return;
+      }
+      if (state.isSending) {
+        showToast('info', window.I18N.t('page.chat.main.status.generating', '正在生成回复…'));
+        return;
+      }
+      const conversation = getCurrentConversation();
+      if (!conversation || !Array.isArray(conversation.messages) || conversation.messages.length === 0) {
+        showToast('info', window.I18N.t('page.chat.main.auto_reply.no_context', '暂无对话上下文，无法生成回复'));
+        return;
+      }
+      const assistant = getCurrentAssistant();
+      const userInput = els.promptInput.value.trim();
+      const conversationMessages = [];
+      if (assistant?.systemPrompt?.trim()) {
+        conversationMessages.push({ role: 'system', content: assistant.systemPrompt.trim() });
+      }
+      for (const msg of conversation.messages) {
+        const content = typeof msg.content === 'string' ? msg.content : '';
+        if (msg.role === 'user') {
+          conversationMessages.push({ role: 'user', content: buildUserContent(msg) });
+        } else if (msg.role === 'assistant' && content.trim()) {
+          conversationMessages.push({ role: 'assistant', content });
+        } else if (msg.role === 'tool' && content.trim()) {
+          conversationMessages.push({ role: 'tool', content, tool_call_id: msg.toolCallId || '', name: msg.toolName || '' });
+        }
+      }
+      if (userInput) {
+        conversationMessages.push({
+          role: 'user',
+          content: '我正在输入以下内容，请帮我补全这条回复，直接输出补全的完整内容，不要加引号或额外说明：\n' + userInput
+        });
+      } else {
+        const lastAssistant = conversation.messages.findLast(m => m.role === 'assistant' && contentToText(m.content).trim());
+        if (lastAssistant) {
+          conversationMessages.push({
+            role: 'user',
+            content: '请根据上面的对话内容，站在用户的角度生成一条合适的回复消息。直接输出回复内容，不要加引号或额外说明。'
+          });
+        } else {
+          showToast('info', window.I18N.t('page.chat.main.auto_reply.no_assistant_msg', '暂无助手回复，无法生成回复'));
+          return;
+        }
+      }
+      const compositeKey = state.autoReplyModel || state.model || '';
+      if (!compositeKey) {
+        showToast('error', window.I18N.t('page.chat.main.auto_reply.no_model', '请先选择模型'));
+        return;
+      }
+      const sep = compositeKey.lastIndexOf('::');
+      const bareModelId = sep >= 0 ? compositeKey.substring(0, sep) : compositeKey;
+      const nd = sep >= 0 ? compositeKey.substring(sep + 2) : '';
+      const body = {
+        model: bareModelId,
+        messages: conversationMessages,
+        max_tokens: 512,
+        temperature: 0.7,
+        enable_thinking: false,
+        stream: false
+      };
+      if (nd) {
+        body.nodeId = nd;
+      }
+      els.autoReplyBtn.disabled = true;
+      els.autoReplyBtn.setAttribute('aria-label', window.I18N.t('page.chat.main.auto_reply.generating', '正在生成…'));
+      try {
+        const response = await fetch(CHAT_ENDPOINT, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || window.I18N.t('page.chat.main.error.request_failed_status', '请求失败：{status}').replace('{status}', response.status));
+        }
+        const data = await response.json();
+        const raw = data?.choices?.[0]?.message?.content || '';
+        if (raw.trim()) {
+          if (userInput) {
+            els.promptInput.value = raw.trim();
+          } else {
+            els.promptInput.value = raw.trim();
+          }
+          resizePromptInput();
+          els.promptInput.focus();
+          showToast('success', window.I18N.t('page.chat.main.auto_reply.success', 'AI 已生成回复，请检查后发送'));
+        } else {
+          showToast('info', window.I18N.t('page.chat.main.auto_reply.empty', 'AI 未生成有效内容'));
+        }
+      } catch (error) {
+        showToast('error', window.I18N.t('page.chat.main.auto_reply.failed', '生成失败：{error}').replace('{error}', error.message || window.I18N.t('page.chat.main.misc.recording_error', '未知错误')));
+      } finally {
+        els.autoReplyBtn.disabled = false;
+        els.autoReplyBtn.setAttribute('aria-label', window.I18N.t('page.chat.main.composer.auto_reply', 'AI 帮答'));
+      }
+    }
+
     async function openConversation(id) {
       if (!ensureStateReadyForOperation()) {
         return;
@@ -5854,6 +6020,9 @@ function confirmAudioRecording() {
           return;
         }
         void sendMessage();
+      });
+      els.autoReplyBtn.addEventListener('click', () => {
+        void generateAutoReply();
       });
       els.modelSelect.addEventListener('change', () => {
         state.model = els.modelSelect.value;

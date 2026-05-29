@@ -1695,5 +1695,19 @@
   "page.chat.main.settings.templates.title_gen_desc": "When enabled, the AI will automatically generate a title for the conversation after the first response",
   "page.chat.main.settings.templates.title_gen_model_label": "Title Generation Model",
   "page.chat.main.settings.templates.title_gen_model_desc": "Select the model to use for title generation. Leave empty to use the current conversation model",
-  "page.chat.main.settings.templates.title_gen_model_default": "Use current conversation model"
+  "page.chat.main.settings.templates.title_gen_model_default": "Use current conversation model",
+  "page.chat.main.settings.templates.auto_reply_label": "Enable AI Auto-Reply",
+  "page.chat.main.settings.templates.auto_reply_toggle": "AI Auto-Reply",
+  "page.chat.main.settings.templates.auto_reply_desc": "When enabled, click the auto-reply button next to the input box and the AI will generate a reply based on the conversation context",
+  "page.chat.main.settings.templates.auto_reply_model_label": "Auto-Reply Model",
+  "page.chat.main.settings.templates.auto_reply_model_desc": "Select the model to use for auto-reply generation. Leave empty to use the current conversation model",
+  "page.chat.main.settings.templates.auto_reply_model_default": "Use current conversation model",
+  "page.chat.main.auto_reply.no_context": "No conversation context available, cannot generate reply",
+  "page.chat.main.auto_reply.no_assistant_msg": "No assistant response available, cannot generate reply",
+  "page.chat.main.auto_reply.no_model": "Please select a model first",
+  "page.chat.main.auto_reply.generating": "Generating…",
+  "page.chat.main.auto_reply.success": "AI has generated a reply, please review before sending",
+  "page.chat.main.auto_reply.empty": "AI did not generate valid content",
+  "page.chat.main.auto_reply.failed": "Generation failed: {error}",
+  "page.chat.main.composer.auto_reply": "AI Auto-Reply"
 }
