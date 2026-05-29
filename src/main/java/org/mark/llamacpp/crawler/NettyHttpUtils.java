@@ -18,6 +18,7 @@ import io.netty.util.concurrent.GenericFutureListener;
 
 
 import org.mark.llamacpp.server.LlamaServer;
+import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.struct.ProxyConfigData;
 
 import java.io.IOException;
@@ -65,13 +66,22 @@ public final class NettyHttpUtils {
     private NettyHttpUtils() {}
 
     /**
-     * Creates an SSL context that trusts all certificates (including self-signed).
+     * Creates an SSL context based on the {@code ssl.verify} system property.
+     * <p>
+     * When {@code ssl.verify=true} (default), returns a secure SslContext that uses
+     * the JDK's default trust store for certificate verification.
+     * When {@code ssl.verify=false}, returns an insecure SslContext that trusts all
+     * certificates (including self-signed) — only for development/debugging.
      */
-    private static SslContext createInsecureSslContext() {
+    private static SslContext createSslContext() {
         try {
-            return SslContextBuilder.forClient()
-                    .trustManager(InsecureTrustManagerFactory.INSTANCE)
-                    .build();
+            if (NodeManager.isSslVerificationEnabled()) {
+                return SslContextBuilder.forClient().build();
+            } else {
+                return SslContextBuilder.forClient()
+                        .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                        .build();
+            }
         } catch (Exception e) {
             throw new RuntimeException("Failed to create SSL context", e);
         }
@@ -389,7 +399,7 @@ public final class NettyHttpUtils {
                                              future, readTimeout));
                                  } else if (isHttps) {
                                      try {
-                                         SslContext sslContext = createInsecureSslContext();
+                                         SslContext sslContext = createSslContext();
                                          pipeline.addLast(sslContext.newHandler(ch.alloc(), host, port));
                                      } catch (Exception e) {
                                          future.completeExceptionally(new IOException("Failed to create SSL context", e));
@@ -628,7 +638,7 @@ public final class NettyHttpUtils {
                     ctx.pipeline().remove(HttpObjectAggregator.class);
 
                     try {
-                        SslContext sslContext = createInsecureSslContext();
+                        SslContext sslContext = createSslContext();
                         ctx.pipeline().addFirst(sslContext.newHandler(ctx.channel().alloc(), targetHost, targetPort));
                         ctx.pipeline().addLast(new HttpClientCodec());
                         ctx.pipeline().addLast(new HttpContentDecompressor());
@@ -962,7 +972,7 @@ public final class NettyHttpUtils {
                                  } else {
                                      if (isHttps) {
                                          try {
-                                             SslContext sslContext = createInsecureSslContext();
+                                             SslContext sslContext = createSslContext();
                                              pipeline.addLast(sslContext.newHandler(ch.alloc(), host, port));
                                          } catch (Exception e) {
                                              future.completeExceptionally(new IOException("Failed to create SSL context", e));
@@ -1074,7 +1084,7 @@ public final class NettyHttpUtils {
                     ctx.pipeline().remove(HttpClientCodec.class);
                     ctx.pipeline().remove(HttpObjectAggregator.class);
                     try {
-                        SslContext sslContext = createInsecureSslContext();
+                        SslContext sslContext = createSslContext();
                         ctx.pipeline().addFirst(sslContext.newHandler(ctx.channel().alloc(), targetHost, targetPort));
                         ctx.pipeline().addLast(new HttpClientCodec());
                         ctx.pipeline().addLast(new DownloadToFileHandler(

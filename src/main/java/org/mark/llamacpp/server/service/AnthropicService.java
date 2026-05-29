@@ -31,8 +31,6 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
@@ -42,9 +40,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import org.mark.llamacpp.server.LlamaCppProcess;
 
@@ -57,7 +52,6 @@ public class AnthropicService {
     private static final Logger logger = LoggerFactory.getLogger(AnthropicService.class);
     private static final Gson gson = new Gson();
     private static final String ANTHROPIC_API_KEY = "123456";
-    private static final javax.net.ssl.SSLSocketFactory TRUST_ALL_SOCKET_FACTORY = createTrustAllSocketFactory();
 	/**
 	 * 	线程池。
 	 */
@@ -67,25 +61,6 @@ public class AnthropicService {
 	 * 	存储当前通道正在处理的模型链接，用于在连接关闭时停止对应的模型进程
 	 */
 	private final Map<ChannelHandlerContext, HttpURLConnection> channelConnectionMap = new HashMap<>();
-
-	private static javax.net.ssl.SSLSocketFactory createTrustAllSocketFactory() {
-		try {
-			TrustManager[] trustAll = new TrustManager[]{
-				new X509TrustManager() {
-					public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-					public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-					public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-				}
-			};
-			SSLContext sc = SSLContext.getInstance("TLS");
-			sc.init(null, trustAll, new SecureRandom());
-			return sc.getSocketFactory();
-		} catch (Exception e) {
-			throw new RuntimeException("Failed to create trust-all SSL socket factory", e);
-		}
-	}
-
-	private static final javax.net.ssl.HostnameVerifier TRUST_ALL_HOSTNAME_VERIFIER = (hostname, session) -> true;
 
 	public AnthropicService() {
 		
@@ -550,10 +525,7 @@ public class AnthropicService {
                 connection = (HttpURLConnection) url.openConnection();
 
                 if (connection instanceof HttpsURLConnection) {
-                    if (!NodeManager.isSslVerificationEnabled()) {
-                        ((HttpsURLConnection) connection).setSSLSocketFactory(TRUST_ALL_SOCKET_FACTORY);
-                        ((HttpsURLConnection) connection).setHostnameVerifier(TRUST_ALL_HOSTNAME_VERIFIER);
-                    }
+                    NodeManager.trustAllCerts((HttpsURLConnection) connection);
                 }
 
                 synchronized (this.channelConnectionMap) {
