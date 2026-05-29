@@ -4588,8 +4588,12 @@
         removeTypingIndicator();
         const doneConversation = getCurrentConversation();
         updateConversationTitle(doneConversation);
-        if (doneConversation && doneConversation.messages && doneConversation.messages.length === 2) {
-          generateConversationTitle(doneConversation);
+        if (doneConversation && Array.isArray(doneConversation.messages)) {
+          const firstUserIdx = doneConversation.messages.findIndex(m => m.role === 'user' && hasMessageBody(m));
+          const nextUserIdx = doneConversation.messages.findIndex((m, i) => i > firstUserIdx && m.role === 'user' && hasMessageBody(m));
+          if (firstUserIdx >= 0 && nextUserIdx < 0) {
+            generateConversationTitle(doneConversation);
+          }
         }
         renderConversationList();
         syncConversationMeta();
@@ -4621,8 +4625,21 @@
           assistantMessageIndex = conversation.messages.length;
         }
       } else if (message.role === 'assistant') {
-        userMessageIndex = index - 1;
-        if (conversation.messages[userMessageIndex]?.role !== 'user') {
+        // Walk backwards, skipping tool and intermediate assistant messages, to find the triggering user message
+        let searchIdx = index - 1;
+        while (searchIdx >= 0) {
+          const prev = conversation.messages[searchIdx];
+          if (prev.role === 'tool' || prev.role === 'assistant') {
+            searchIdx -= 1;
+            continue;
+          }
+          if (prev.role === 'user') {
+            userMessageIndex = searchIdx;
+            break;
+          }
+          break;
+        }
+        if (userMessageIndex === index || !conversation.messages[userMessageIndex] || conversation.messages[userMessageIndex].role !== 'user') {
           showToast('info', window.I18N.t('page.chat.main.status.no_user_message', '未找到对应的用户消息'));
           return;
         }
