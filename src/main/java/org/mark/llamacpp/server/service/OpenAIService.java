@@ -92,11 +92,12 @@ public class OpenAIService {
 		private static final RequestQueueManager queueManager = RequestQueueManager.getInstance();
 
 		/**
-		 * 	集霸矛！
-	 */
-	public OpenAIService() {
-		
-	}
+		 * 集霸矛！
+		 */
+		public OpenAIService() {
+			// P0 Fix: Register this instance with RequestQueueManager for failAll to send HTTP error responses
+			RequestQueueManager.setOpenAIService(this);
+		}
 	
 	/**
 	 * 	处理模型列表请求
@@ -702,14 +703,32 @@ public class OpenAIService {
 
 	/**
 	 * 转发请求到 llama.cpp 进程（使用预复制的 headers，适用于队列中的请求）
+	 * P0 Fix: Now accepts explicit httpMethod parameter to avoid :method pseudo-header issue in HTTP/1.1
+	 *
+	 * @deprecated 此重载仅用于已知 POST 的场景。建议使用带显式 httpMethod 参数的新重载。
+	 * @deprecated 无调用者，已被带 httpMethod 参数的新方法替代。
+	 * @deprecated 请使用 {@link #forwardRequestToLlamaCpp(ChannelHandlerContext, String, Map, String, int, String, boolean, String)}
 	 */
+	@Deprecated
 	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, Map<String, String> headers, String modelName, int port, String endpoint, boolean isStream, String requestBody) {
+		// 默认使用 POST 方法（大多数 API 是 POST），当没有显式指定 httpMethod 时
+		this.forwardRequestToLlamaCpp(ctx, HttpMethod.POST, headers, port, endpoint, isStream, 
+			requestBody == null ? new byte[0] : requestBody.getBytes(StandardCharsets.UTF_8), modelName);
+	}
+
+	/**
+	 * 转发请求到 llama.cpp 进程（使用预复制的 headers 和显式 HTTP 方法，适用于队列中的请求）
+	 * P0 Fix: New overload method that accepts explicit httpMethod to avoid :method pseudo-header issue
+	 */
+	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, String httpMethod, Map<String, String> headers, String modelName, int port, String endpoint, boolean isStream, String requestBody) {
 		byte[] requestBodyBytes = requestBody == null ? new byte[0] : requestBody.getBytes(StandardCharsets.UTF_8);
-		// 使用 GET 方法作为默认值（大多数 API 是 POST，但 headers 中可能包含实际方法）
-		HttpMethod method = HttpMethod.GET;
-		String methodHeader = headers.get(":method");
-		if (methodHeader != null) {
-			method = HttpMethod.valueOf(methodHeader.toUpperCase());
+		HttpMethod method = HttpMethod.POST;  // 默认 POST
+		if (httpMethod != null && !httpMethod.isBlank()) {
+			try {
+				method = HttpMethod.valueOf(httpMethod.toUpperCase());
+			} catch (IllegalArgumentException e) {
+				logger.warn("[Queue] Invalid HTTP method: {}, using POST", httpMethod);
+			}
 		}
 		this.forwardRequestToLlamaCpp(ctx, method, headers, port, endpoint, isStream, requestBodyBytes, modelName);
 	}
@@ -1486,9 +1505,9 @@ public class OpenAIService {
 							}
 							continue;
 						}
-						// P0-1: 转发排队的请求到模型 (使用 headers 而不是 FullHttpRequest)
-						this.forwardRequestToLlamaCpp(queuedReq.ctx, queuedReq.headers, modelName, 
-							modelPort, queuedReq.apiPath, queuedReq.isStream, queuedReq.requestBody);
+						// P0-1: 转发排队的请求到模型 (使用 stored httpMethod and headers)
+						this.forwardRequestToLlamaCpp(queuedReq.ctx, queuedReq.httpMethod, queuedReq.headers, modelName,
+								modelPort, queuedReq.apiPath, queuedReq.isStream, queuedReq.requestBody);
 					} catch (Exception e) {
 						logger.error("[Queue] 转发排队请求失败: model={}", modelName, e);
 						try {

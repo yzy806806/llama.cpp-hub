@@ -28,6 +28,9 @@ public class RequestQueueManager {
 	// 单例
 	private static final RequestQueueManager INSTANCE = new RequestQueueManager();
 
+	// P0 Fix: Static reference to OpenAIService for sending error responses in failAll
+	private static volatile OpenAIService openAIService;
+
 	// 每个模型的队列（modelId -> 队列）
 	private final java.util.concurrent.ConcurrentHashMap<String, ModelRequestQueue> modelQueues = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -36,6 +39,13 @@ public class RequestQueueManager {
 
 	public static RequestQueueManager getInstance() {
 		return INSTANCE;
+	}
+
+	/**
+	 * P0 Fix: Set OpenAIService instance for sending error responses in failAll
+	 */
+	public static void setOpenAIService(OpenAIService service) {
+		openAIService = service;
 	}
 
 	/**
@@ -195,6 +205,7 @@ public class RequestQueueManager {
 	public static class QueuedRequest implements Comparable<QueuedRequest> {
 		public final ChannelHandlerContext ctx;
 		public final Map<String, String> headers;
+		public final String httpMethod;  // P0 Fix: Store HTTP method from request.method().name()
 		public final String modelName;
 		public final String apiPath;
 		public final boolean isStream;
@@ -219,6 +230,8 @@ public class RequestQueueManager {
 			this.priority = priority;
 			this.enqueueTime = System.currentTimeMillis();
 			this.timeoutMs = timeoutMs;
+			// P0 Fix: Store HTTP method from request.method().name() to avoid :method pseudo-header issue in HTTP/1.1
+			this.httpMethod = request.method().name();
 			// 复制请求头，避免在异步任务中访问已释放的请求对象
 			this.headers = new java.util.HashMap<>();
 			for (Map.Entry<String, String> entry : request.headers()) {
@@ -342,6 +355,18 @@ public class RequestQueueManager {
 				QueuedRequest req;
 				while ((req = queue.poll()) != null) {
 					req.markFailed(errorCode, errorMessage);
+					// P0 Fix: Send HTTP error response to active channel
+					if (req.ctx.channel().isActive()) {
+						try {
+							if (openAIService != null) {
+								openAIService.sendOpenAIErrorResponseWithCleanup(req.ctx, errorCode, null, errorMessage, null);
+							} else {
+								logger.warn("[Queue] failAll: OpenAIService not set, cannot send error response to client");
+							}
+						} catch (Exception e) {
+							logger.error("[Queue] failAll: Failed to send error response to client", e);
+						}
+					}
 				}
 			} finally {
 				readyLock.unlock();
@@ -350,72 +375,20 @@ public class RequestQueueManager {
 		
 		/**
 		 * 取出并移除所有排队的请求
+		 * P0 Fix: Added readyLock to prevent race condition
 		 */
 		public java.util.List<QueuedRequest> drainAll() {
-			java.util.List<QueuedRequest> list = new java.util.ArrayList<>();
-			QueuedRequest req;
-			while ((req = queue.poll()) != null) {
-				list.add(req);
-			}
-			return list;
-		}
-
-		public void clear() {
-			queue.clear();
-		}
-
-		/**
-		 * 取出并处理队列中的请求
-		 * 
-		 * @param openAIService OpenAI 服务实例
-		 * @return 处理的请求数量
-		 */
-		public int processQueue(OpenAIService openAIService) {
-			int processed = 0;
-			// 等待模型就绪或失败
 			readyLock.lock();
 			try {
-				while (!modelReady && !failed) {
-					if (!ready.await(100, TimeUnit.MILLISECONDS)) {
-						// 检查队列是否有新请求
-					}
+				java.util.List<QueuedRequest> list = new java.util.ArrayList<>();
+				QueuedRequest req;
+				while ((req = queue.poll()) != null) {
+					list.add(req);
 				}
-			} catch (InterruptedException e) {
-				Thread.currentThread().interrupt();
-				return processed;
+				return list;
 			} finally {
 				readyLock.unlock();
 			}
-
-			if (failed) {
-				return processed;
-			}
-
-			// 处理队列中的请求
-			QueuedRequest req;
-			while ((req = queue.poll()) != null) {
-				try {
-					// 等待请求处理完成
-					if (req.await()) {
-						// 请求已被原始处理流程处理（模型加载后自动转发）
-						// 这里不需要再做处理，因为 jitAutoLoadModel 会在加载完成后自动处理排队的请求
-						processed++;
-					} else {
-						// 超时，发送错误响应
-						OpenAIService service = openAIService;
-						service.sendOpenAIErrorResponseWithCleanup(req.ctx, req.errorCode, null,
-								req.errorMessage, null);
-					}
-				} catch (Exception e) {
-					logger.error("[Queue] 处理排队请求时发生异常: model={}", modelName, e);
-					try {
-						openAIService.sendOpenAIErrorResponseWithCleanup(req.ctx, 500, null,
-								"Queue processing error: " + e.getMessage(), null);
-					} catch (Exception ignore) {
-					}
-				}
-			}
-			return processed;
 		}
 	}
 }
