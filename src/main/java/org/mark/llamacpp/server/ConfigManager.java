@@ -2,6 +2,7 @@ package org.mark.llamacpp.server;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import org.slf4j.Logger;
@@ -35,6 +36,7 @@ public class ConfigManager {
     private static final String MODELS_CONFIG_FILE = CONFIG_DIR + "/models.json";
     private static final String LAUNCH_CONFIG_FILE = CONFIG_DIR + "/launch_config.json";
     private static final String NODES_CONFIG_FILE = CONFIG_DIR + "/nodes.json";
+    private static final String JIT_CONFIG_FILE = CONFIG_DIR + "/jit.json";
     private static final String DEFAULT_CONFIG_NAME = "默认配置";
     
     private final Gson gson;
@@ -560,6 +562,60 @@ public class ConfigManager {
         } catch (IOException | JsonSyntaxException e) {
             logger.info("加载节点配置失败: {}", e.getMessage());
             return new java.util.ArrayList<>();
+        }
+    }
+
+    // ==================== JIT 配置 ====================
+
+    /**
+     * 加载 JIT 预热配置
+     * @return WarmupConfig
+     */
+    public WarmupConfig loadWarmupConfig() {
+        File configFile = new File(JIT_CONFIG_FILE);
+        if (!configFile.exists()) {
+            logger.info("JIT 配置文件不存在，使用默认预热配置");
+            return new WarmupConfig();
+        }
+
+        try (FileReader reader = new FileReader(configFile)) {
+            JsonObject root = gson.fromJson(reader, JsonObject.class);
+            if (root == null || !root.has("warmup")) {
+                logger.info("JIT 配置中无 warmup 段，使用默认预热配置");
+                return new WarmupConfig();
+            }
+            JsonObject warmupObj = root.getAsJsonObject("warmup");
+            Map<String, Object> warmupMap = gson.fromJson(warmupObj, Map.class);
+            WarmupConfig config = WarmupConfig.fromMap(warmupMap);
+            logger.info("成功加载 JIT 预热配置: enabled={}, prompt={}, maxTokens={}, timeout={}",
+                config.isEnabled(), config.getPrompt(), config.getMaxTokens(), config.getTimeout());
+            return config;
+        } catch (IOException | JsonSyntaxException e) {
+            logger.info("加载 JIT 预热配置失败，使用默认配置: {}", e.getMessage());
+            return new WarmupConfig();
+        }
+    }
+
+    /**
+     * 保存 JIT 预热配置
+     * @param warmupConfig 预热配置
+     * @return 是否保存成功
+     */
+    public boolean saveWarmupConfig(WarmupConfig warmupConfig) {
+        try {
+            JsonObject root = new JsonObject();
+            JsonObject warmupObj = new JsonObject();
+            warmupObj.addProperty("enabled", warmupConfig.isEnabled());
+            warmupObj.addProperty("prompt", warmupConfig.getPrompt());
+            warmupObj.addProperty("maxTokens", warmupConfig.getMaxTokens());
+            warmupObj.addProperty("timeout", warmupConfig.getTimeout());
+            root.add("warmup", warmupObj);
+            writeJsonFileAtomic(JIT_CONFIG_FILE, root);
+            logger.info("JIT 预热配置已保存到: {}", JIT_CONFIG_FILE);
+            return true;
+        } catch (IOException e) {
+            logger.info("保存 JIT 预热配置失败: {}", e);
+            return false;
         }
     }
 

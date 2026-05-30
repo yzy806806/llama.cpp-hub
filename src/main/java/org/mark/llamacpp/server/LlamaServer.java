@@ -361,6 +361,12 @@ public class LlamaServer {
 	private static volatile int jitMaxLoadedModels = 2;
 	private static volatile String jitLoadStrategy = "lru";
 	private static volatile boolean jitAllowQueue = true;
+	// JIT 请求队列配置
+	private static volatile boolean jitQueueEnabled = true;
+	private static volatile int jitQueueMaxSize = 100;
+	private static volatile int jitQueueDefaultTimeout = 60000;
+	private static volatile boolean jitQueuePriorityEnabled = true;
+	private static volatile String jitQueuePriorityHeader = "X-Request-Priority";
 
 	private static volatile DefaultMcpServiceImpl mcpServerService;
 
@@ -556,6 +562,32 @@ public class LlamaServer {
 				}
 				if (jit.has("allowQueue")) {
 					jitAllowQueue = jit.get("allowQueue").getAsBoolean();
+				}
+				// 解析 queue 子配置
+				if (jit.has("queue")) {
+					JsonObject queue = jit.getAsJsonObject("queue");
+					if (queue != null) {
+						if (queue.has("enabled")) {
+							jitQueueEnabled = queue.get("enabled").getAsBoolean();
+						}
+						if (queue.has("maxQueueSize")) {
+							jitQueueMaxSize = queue.get("maxQueueSize").getAsInt();
+						}
+						if (queue.has("defaultTimeout")) {
+							jitQueueDefaultTimeout = queue.get("defaultTimeout").getAsInt();
+						}
+						if (queue.has("priority")) {
+							JsonObject priority = queue.getAsJsonObject("priority");
+							if (priority != null) {
+								if (priority.has("enabled")) {
+									jitQueuePriorityEnabled = priority.get("enabled").getAsBoolean();
+								}
+								if (priority.has("header")) {
+									jitQueuePriorityHeader = priority.get("header").getAsString();
+								}
+							}
+						}
+					}
 				}
 			}
 		}
@@ -997,10 +1029,31 @@ public static boolean isMcpServerRunning() {
      }
      
      public static boolean isJitAllowQueue() {
-     	return jitAllowQueue;
-     }
-     
-     /**
+         	return jitAllowQueue;
+         }
+    
+         // JIT Queue 配置 Getter
+         public static boolean isJitQueueEnabled() {
+         	return jitQueueEnabled;
+         }
+    
+         public static int getJitQueueMaxSize() {
+         	return jitQueueMaxSize;
+         }
+    
+         public static int getJitQueueDefaultTimeout() {
+         	return jitQueueDefaultTimeout;
+         }
+    
+         public static boolean isJitQueuePriorityEnabled() {
+         	return jitQueuePriorityEnabled;
+         }
+    
+         public static String getJitQueuePriorityHeader() {
+         	return jitQueuePriorityHeader;
+         }
+    
+         /**
       * 更新 JIT 配置并持久化到 application.json
       */
      public static void updateJitConfig(Boolean enabled, Integer defaultTtl, Integer maxLoadedModels, String loadStrategy, Boolean allowQueue) {

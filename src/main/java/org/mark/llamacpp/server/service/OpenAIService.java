@@ -58,6 +58,7 @@ import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.Timing;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
+import org.mark.llamacpp.server.service.RequestQueueManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,11 +83,16 @@ public class OpenAIService {
 	 * 	给响应头做时间转换（DateTimeFormatter是线程安全的）
 	 */
 	private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter
-			.ofPattern("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
-			.withZone(ZoneId.of("GMT"));
-	
-	/**
-	 * 	集霸矛！
+				.ofPattern("EEE, d MMM yyyy HH:mm:ss 'GMT'", Locale.ENGLISH)
+				.withZone(ZoneId.of("GMT"));
+
+		/**
+		 * 请求队列管理器
+		 */
+		private static final RequestQueueManager queueManager = RequestQueueManager.getInstance();
+
+		/**
+		 * 	集霸矛！
 	 */
 	public OpenAIService() {
 		
@@ -1300,6 +1306,24 @@ public class OpenAIService {
 				return false;
 			}
 			
+			// 1.5 检查模型是否已经在加载中，如果是则加入队列等待
+			if (manager.isLoading(modelName)) {
+				logger.info("JIT: 模型 {} 正在加载中，加入请求队列等待", modelName);
+				if (queueManager.isQueueEnabled()) {
+					boolean enqueued = queueManager.enqueueRequest(ctx, request, modelName, apiPath, isStream, body);
+					if (enqueued) {
+						// 已在队列中等待，模型就绪后会自动处理
+						return true;
+					}
+					// 队列满，返回 503
+					this.sendOpenAIErrorResponseWithCleanup(ctx, 503, null, 
+						"Queue full, please try again later", null);
+					return true;
+				}
+				// 队列未启用，失败
+				return false;
+			}
+			
 			// 2. 获取模型启动配置
 			ConfigManager configManager = ConfigManager.getInstance();
 			Map<String, Object> configBundle = configManager.getModelLaunchConfigBundle(modelName);
@@ -1354,7 +1378,24 @@ public class OpenAIService {
 				String strategy = LlamaServer.getJitLoadStrategy();
 				String evicted = manager.evictModel(strategy);
 				if (evicted == null) {
-					logger.info("JIT: 未能卸载模型，无法加载新模型");
+					logger.info("JIT: 未能卸载模型，尝试加入队列等待");
+					// 如果队列启用，加入队列等待
+					if (queueManager.isQueueEnabled()) {
+						// 移除旧队列（如果有）
+						queueManager.removeQueue(modelName);
+						// 尝试加载模型并加入队列
+						boolean enqueued = queueManager.enqueueRequest(ctx, request, modelName, apiPath, isStream, body);
+						if (enqueued) {
+							// 启动后台加载
+							manager.loadModelAsyncFromCmd(modelName, llamaBinPath, device, mg, 
+								enableVision, cmd, extraParams, chatTemplateFilePath);
+							return true;
+						}
+						// 队列满，返回 503
+						this.sendOpenAIErrorResponseWithCleanup(ctx, 503, null, 
+							"Queue full, please try again later", null);
+						return true;
+					}
 					if (LlamaServer.isJitAllowQueue()) {
 						// 暂时不支持排队，返回繁忙
 						this.sendOpenAIErrorResponseWithCleanup(ctx, 503, null, 
@@ -1379,6 +1420,10 @@ public class OpenAIService {
 			boolean loadSuccess = manager.waitForModelLoad(modelName, 120000);
 			if (!loadSuccess) {
 				logger.info("JIT: 模型 {} 加载超时", modelName);
+				// 通知队列加载失败
+				if (queueManager.isQueueEnabled()) {
+					queueManager.onModelLoadFailed(modelName);
+				}
 				this.sendOpenAIErrorResponseWithCleanup(ctx, 504, null, 
 					"Model loading timeout: " + modelName, null);
 				return true;
@@ -1395,6 +1440,27 @@ public class OpenAIService {
 			
 			// 更新活动时间（带请求级 TTL 覆盖）
 			manager.updateModelActiveTime(modelName, requestTtl);
+			
+			// 通知队列模型已加载，并处理排队的请求
+			if (queueManager.isQueueEnabled()) {
+				queueManager.onModelLoaded(modelName);
+				// 获取并处理所有排队的请求
+				java.util.List<RequestQueueManager.QueuedRequest> queuedRequests = queueManager.drainQueue(modelName);
+				for (RequestQueueManager.QueuedRequest queuedReq : queuedRequests) {
+					try {
+						// 转发排队的请求到模型
+						this.forwardRequestToLlamaCpp(queuedReq.ctx, queuedReq.request, modelName, 
+							modelPort, queuedReq.apiPath, queuedReq.isStream, queuedReq.requestBody);
+					} catch (Exception e) {
+						logger.error("[Queue] 转发排队请求失败: model={}", modelName, e);
+						try {
+							this.sendOpenAIErrorResponseWithCleanup(queuedReq.ctx, 500, null,
+								"Failed to forward queued request: " + e.getMessage(), null);
+						} catch (Exception ignore) {
+						}
+					}
+				}
+			}
 			
 			// 转发请求
 			this.forwardRequestToLlamaCpp(ctx, request, modelName, modelPort, apiPath, isStream, body);
