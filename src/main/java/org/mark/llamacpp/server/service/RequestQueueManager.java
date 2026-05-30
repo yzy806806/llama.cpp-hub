@@ -1,5 +1,6 @@
 package org.mark.llamacpp.server.service;
 
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -154,11 +155,12 @@ public class RequestQueueManager {
 
 	/**
 	 * 移除模型队列（模型卸载时调用）
+	 * 改为 failAll 以通知客户端请求失败，而不是静默丢弃
 	 */
 	public void removeQueue(String modelName) {
 		ModelRequestQueue queue = modelQueues.remove(modelName);
 		if (queue != null) {
-			queue.clear();
+			queue.failAll(503, "Model queue removed: model was unloaded or replaced");
 		}
 	}
 
@@ -192,7 +194,7 @@ public class RequestQueueManager {
 	 */
 	public static class QueuedRequest implements Comparable<QueuedRequest> {
 		public final ChannelHandlerContext ctx;
-		public final FullHttpRequest request;
+		public final Map<String, String> headers;
 		public final String modelName;
 		public final String apiPath;
 		public final boolean isStream;
@@ -210,7 +212,6 @@ public class RequestQueueManager {
 		public QueuedRequest(ChannelHandlerContext ctx, FullHttpRequest request, String modelName,
 				String apiPath, boolean isStream, String requestBody, RequestPriority priority, long timeoutMs) {
 			this.ctx = ctx;
-			this.request = request;
 			this.modelName = modelName;
 			this.apiPath = apiPath;
 			this.isStream = isStream;
@@ -218,6 +219,11 @@ public class RequestQueueManager {
 			this.priority = priority;
 			this.enqueueTime = System.currentTimeMillis();
 			this.timeoutMs = timeoutMs;
+			// 复制请求头，避免在异步任务中访问已释放的请求对象
+			this.headers = new java.util.HashMap<>();
+			for (Map.Entry<String, String> entry : request.headers()) {
+				this.headers.put(entry.getKey(), entry.getValue());
+			}
 		}
 
 		@Override

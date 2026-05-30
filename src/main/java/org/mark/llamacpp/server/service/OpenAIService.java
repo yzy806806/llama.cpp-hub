@@ -678,18 +678,46 @@ public class OpenAIService {
 	 */
 	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, FullHttpRequest request, String modelName, int port, String endpoint, boolean isStream, String requestBody) {
 		byte[] requestBodyBytes = requestBody == null ? new byte[0] : requestBody.getBytes(StandardCharsets.UTF_8);
-		this.forwardRequestToLlamaCpp(ctx, request, modelName, port, endpoint, isStream, requestBodyBytes);
-	}
-	
-	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, FullHttpRequest request, String modelName, int port, String endpoint, boolean isStream, byte[] requestBodyBytes) {
-		// 在异步执行前先读取请求体，避免ByteBuf引用计数问题
+		// 从 FullHttpRequest 提取 method 和 headers
 		HttpMethod method = request.method();
-		// 复制请求头，避免在异步任务中访问已释放的请求对象
-		Map<String, String> headers = new HashMap<>();
+		Map<String, String> headersMap = new HashMap<>();
 		for (Map.Entry<String, String> entry : request.headers()) {
-			headers.put(entry.getKey(), entry.getValue());
+			headersMap.put(entry.getKey(), entry.getValue());
 		}
+		this.forwardRequestToLlamaCpp(ctx, method, headersMap, port, endpoint, isStream, requestBodyBytes, modelName);
+	}
 
+	/**
+	 * 转发请求到 llama.cpp 进程（使用 FullHttpRequest + byte[]）
+	 */
+	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, FullHttpRequest request, String modelName, int port, String endpoint, boolean isStream, byte[] requestBodyBytes) {
+		// 从 FullHttpRequest 提取 method 和 headers
+		HttpMethod method = request.method();
+		Map<String, String> headersMap = new HashMap<>();
+		for (Map.Entry<String, String> entry : request.headers()) {
+			headersMap.put(entry.getKey(), entry.getValue());
+		}
+		this.forwardRequestToLlamaCpp(ctx, method, headersMap, port, endpoint, isStream, requestBodyBytes, modelName);
+	}
+
+	/**
+	 * 转发请求到 llama.cpp 进程（使用预复制的 headers，适用于队列中的请求）
+	 */
+	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, Map<String, String> headers, String modelName, int port, String endpoint, boolean isStream, String requestBody) {
+		byte[] requestBodyBytes = requestBody == null ? new byte[0] : requestBody.getBytes(StandardCharsets.UTF_8);
+		// 使用 GET 方法作为默认值（大多数 API 是 POST，但 headers 中可能包含实际方法）
+		HttpMethod method = HttpMethod.GET;
+		String methodHeader = headers.get(":method");
+		if (methodHeader != null) {
+			method = HttpMethod.valueOf(methodHeader.toUpperCase());
+		}
+		this.forwardRequestToLlamaCpp(ctx, method, headers, port, endpoint, isStream, requestBodyBytes, modelName);
+	}
+
+	/**
+	 * 核心转发方法（直接使用 headers Map 和 HttpMethod）
+	 */
+	private void forwardRequestToLlamaCpp(ChannelHandlerContext ctx, HttpMethod method, Map<String, String> headers, int port, String endpoint, boolean isStream, byte[] requestBodyBytes, String modelName) {
 		int requestBodyLength = requestBodyBytes == null ? 0 : requestBodyBytes.length;
 		logger.info("转发请求到llama.cpp进程: {} {} 端口: {} 请求体长度: {}", method.name(), endpoint, port, requestBodyLength);
 		
@@ -1448,8 +1476,18 @@ public class OpenAIService {
 				java.util.List<RequestQueueManager.QueuedRequest> queuedRequests = queueManager.drainQueue(modelName);
 				for (RequestQueueManager.QueuedRequest queuedReq : queuedRequests) {
 					try {
-						// 转发排队的请求到模型
-						this.forwardRequestToLlamaCpp(queuedReq.ctx, queuedReq.request, modelName, 
+						// P0-2: 检查连接是否仍然活跃，避免向已关闭的 channel 写入数据
+						if (!queuedReq.ctx.channel().isActive()) {
+							logger.warn("[Queue] 客户端连接已关闭，跳过转发请求: model={}", modelName);
+							try {
+								this.sendOpenAIErrorResponseWithCleanup(queuedReq.ctx, 502, null,
+									"Bad Gateway: Client connection closed", null);
+							} catch (Exception ignore) {
+							}
+							continue;
+						}
+						// P0-1: 转发排队的请求到模型 (使用 headers 而不是 FullHttpRequest)
+						this.forwardRequestToLlamaCpp(queuedReq.ctx, queuedReq.headers, modelName, 
 							modelPort, queuedReq.apiPath, queuedReq.isStream, queuedReq.requestBody);
 					} catch (Exception e) {
 						logger.error("[Queue] 转发排队请求失败: model={}", modelName, e);
