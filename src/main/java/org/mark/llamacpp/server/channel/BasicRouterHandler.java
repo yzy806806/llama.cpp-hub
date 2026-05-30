@@ -24,6 +24,7 @@ import org.mark.llamacpp.server.controller.ParamController;
 import org.mark.llamacpp.server.controller.SystemController;
 import org.mark.llamacpp.server.controller.ToolController;
 import org.mark.llamacpp.server.controller.UsageReportController;
+import org.mark.llamacpp.server.controller.MetricsController;
 import org.mark.llamacpp.server.exception.RequestMethodException;
 import org.mark.llamacpp.server.struct.ApiResponse;
 
@@ -52,6 +53,7 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 	
 	
 	static {
+		pipeline.add(new MetricsController());
 		pipeline.add(new EasyChatController());
 		pipeline.add(new HuggingFaceController());
 		pipeline.add(new LlamacppController());
