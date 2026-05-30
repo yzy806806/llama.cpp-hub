@@ -153,7 +153,12 @@ public class LlamaServerManager {
 	 * JIT 是否已启动
 	 */
 	private volatile boolean jitSchedulerStarted = false;
-	
+
+	/**
+	 * JIT 预热配置
+	 */
+	private volatile WarmupConfig warmupConfig;
+
 	/**
 	 * 线程池，用于异步执行模型加载任务
 	 */
@@ -167,6 +172,8 @@ public class LlamaServerManager {
 	private LlamaServerManager() {
 		// 尝试从配置文件加载设置
 		this.loadSettingsFromFile();
+		// 加载 JIT 预热配置
+		this.warmupConfig = ConfigManager.getInstance().loadWarmupConfig();
 		//this.startSlotsPolling();
 	}
 	
@@ -1047,6 +1054,52 @@ public class LlamaServerManager {
 	}
 	
 	/**
+	 * 执行模型预热
+	 * 在模型加载成功后，发送一次轻量级推理请求来预热 GPU kernels
+	 * @param modelId 模型ID
+	 * @param port 模型端口
+	 * @return 是否预热成功
+	 */
+	private boolean performWarmup(String modelId, int port) {
+		WarmupConfig config = this.warmupConfig;
+		
+		// 检查是否启用预热
+		if (config == null || !config.isEnabled()) {
+			logger.info("JIT 预热已禁用，跳过预热");
+			return true;
+		}
+		
+		String prompt = config.getPrompt();
+		int maxTokens = config.getMaxTokens();
+		int timeout = config.getTimeout();
+		
+		logger.info("开始模型预热: modelId={}, prompt={}, maxTokens={}, timeout={}ms", 
+				modelId, prompt, maxTokens, timeout);
+		
+		try {
+			// 构建预热请求
+			JsonObject body = new JsonObject();
+			body.addProperty("prompt", prompt);
+			body.addProperty("n_tokens", maxTokens);
+			body.addProperty("temperature", 0.0);  // 使用确定性的temperature
+			
+			HttpResult r = this.callLocalModelEndpoint(port, "POST", "/v1/completions", body, timeout, timeout);
+			
+			if (r.statusCode >= 200 && r.statusCode < 300) {
+				logger.info("模型预热成功: modelId={}", modelId);
+				return true;
+			} else {
+				logger.warn("模型预热失败: modelId={}, statusCode={}, response={}", 
+						modelId, r.statusCode, r.body);
+				return false;
+			}
+		} catch (Exception e) {
+			logger.warn("模型预热异常: modelId={}, error={}", modelId, e.getMessage());
+			return false;
+		}
+	}
+
+	/**
 	 * 等待模型加载完成
 	 * @param modelId 模型ID
 	 * @param timeoutMs 超时时间（毫秒）
@@ -1383,6 +1436,21 @@ public class LlamaServerManager {
 					}
 					// 更新 JIT 活动时间
 					this.updateModelActiveTime(modelId);
+					
+					// 执行模型预热（如果启用）
+					boolean warmupSuccess = this.performWarmup(modelId, actualPort);
+					
+					if (!warmupSuccess) {
+						// 预热失败，标记加载失败
+						process.stop();
+						synchronized (this.processLock) {
+							this.loadedProcesses.remove(modelId);
+							this.modelPorts.remove(modelId);
+						}
+						LlamaServer.sendModelLoadEvent(modelId, false, "模型预热失败");
+						return;
+					}
+					
 					LlamaServer.sendModelLoadEvent(modelId, true, "模型加载成功", actualPort);
 //					// 这里请求一次
 //					try {
@@ -1875,13 +1943,13 @@ public class LlamaServerManager {
 			return "";
 		}
 	}
-	
-	/**
-	 * 	获取Slots信息
-	 * @param modelId
-	 * @return
-	 */
-	public JsonObject handleModelSlotsGet(String modelId) {
+
+		/**
+		 * 	获取Slots信息
+		 * @param modelId
+		 * @return
+		 */
+		public JsonObject handleModelSlotsGet(String modelId) {
 		try {
 			int port = this.requireLoadedModelPort(modelId);
 			HttpResult r = this.callLocalModelEndpoint(port, "GET", "/slots", null, 30000, 30000);
