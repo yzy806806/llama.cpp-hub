@@ -30,6 +30,10 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpMethod;
+
 /**
  * ACME v2 协议实现：通过 Let's Encrypt 申请免费 TLS 证书。
  *
