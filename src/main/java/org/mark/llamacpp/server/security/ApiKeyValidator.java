@@ -1,0 +1,225 @@
+package org.mark.llamacpp.server.security;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.mark.llamacpp.server.LlamaServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpResponse;
+import io.netty.handler.codec.http.HttpResponseStatus;
+import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.DefaultHttpResponse;
+
+/**
+ * API Key 安全验证工具。
+ * 提供：
+ * 1. 常量时间比较（防计时攻击）
+ * 2. Bearer / x-api-key / Basic Auth 三种验证方式
+ * 3. IP 级别暴力破解防护（5 次失败后封禁 15 分钟）
+ */
+public class ApiKeyValidator {
+
+    private static final Logger logger = LoggerFactory.getLogger(ApiKeyValidator.class);
+
+    /** 最大失败次数 */
+    private static final int MAX_FAILURES = 5;
+    /** 封禁时长（毫秒） */
+    private static final long BAN_DURATION_MS = 15 * 60 * 1000;
+    /** 记录清理间隔 */
+    private static final long CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+    private static final ConcurrentHashMap<String, AttemptTracker> failedAttempts = new ConcurrentHashMap<>();
+    private static volatile long lastCleanup = System.currentTimeMillis();
+
+    static class AttemptTracker {
+        final AtomicInteger count = new AtomicInteger(0);
+        volatile long lastAttempt;
+        volatile long bannedUntil;
+
+        AttemptTracker() {
+            this.lastAttempt = System.currentTimeMillis();
+        }
+    }
+
+    private ApiKeyValidator() {
+    }
+
+    /**
+     * 验证请求是否携带正确的 API Key。
+     * 支持三种方式：
+     * - Authorization: Bearer <key>
+     * - x-api-key: <key>
+     * - Authorization: Basic <base64(任意用户名:key)>
+     *
+     * @return true 如果验证通过或未启用验证
+     */
+    public static boolean validate(FullHttpRequest request, String clientIp) {
+        if (!LlamaServer.isApiKeyValidationEnabled()) {
+            return true;
+        }
+        String expected = LlamaServer.getApiKey();
+        if (expected == null || expected.isBlank()) {
+            return false;
+        }
+
+        // 检查 IP 是否被封禁
+        if (isBanned(clientIp)) {
+            logger.warn("IP {} 已被封禁，拒绝访问", clientIp);
+            return false;
+        }
+
+        boolean ok = doValidate(request, expected);
+        if (!ok) {
+            recordFailure(clientIp);
+        } else {
+            clearFailures(clientIp);
+        }
+        return ok;
+    }
+
+    private static boolean doValidate(FullHttpRequest request, String expected) {
+        // 1. Bearer token
+        String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
+        if (auth != null) {
+            if (auth.startsWith("Bearer ")) {
+                return constantTimeEquals(auth.substring(7), expected);
+            }
+            // 2. Basic auth: base64(username:password)，密码 = apiKey
+            if (auth.startsWith("Basic ")) {
+                try {
+                    String decoded = new String(
+                            Base64.getDecoder().decode(auth.substring(6)),
+                            StandardCharsets.UTF_8);
+                    int colon = decoded.indexOf(':');
+                    String password = colon >= 0 ? decoded.substring(colon + 1) : decoded;
+                    return constantTimeEquals(password, expected);
+                } catch (IllegalArgumentException e) {
+                    return false;
+                }
+            }
+        }
+
+        // 3. x-api-key header
+        String apiKey = request.headers().get("x-api-key");
+        if (apiKey != null && !apiKey.isBlank()) {
+            return constantTimeEquals(apiKey, expected);
+        }
+
+        return false;
+    }
+
+    /**
+     * 常量时间字符串比较，防止计时攻击。
+     */
+    private static boolean constantTimeEquals(String a, String b) {
+        if (a == null || b == null) {
+            return false;
+        }
+        byte[] ba = a.getBytes(StandardCharsets.UTF_8);
+        byte[] bb = b.getBytes(StandardCharsets.UTF_8);
+        return MessageDigest.isEqual(ba, bb);
+    }
+
+    // ========== IP 限速 ==========
+
+    private static boolean isBanned(String ip) {
+        if (ip == null || ip.isEmpty()) {
+            return false;
+        }
+        AttemptTracker tracker = failedAttempts.get(ip);
+        if (tracker == null) {
+            return false;
+        }
+        if (tracker.bannedUntil > System.currentTimeMillis()) {
+            return true;
+        }
+        // 封禁过期，重置
+        if (tracker.bannedUntil > 0 && tracker.bannedUntil <= System.currentTimeMillis()) {
+            failedAttempts.remove(ip);
+        }
+        return false;
+    }
+
+    private static void recordFailure(String ip) {
+        if (ip == null || ip.isEmpty()) {
+            return;
+        }
+        cleanupIfNeeded();
+        AttemptTracker tracker = failedAttempts.computeIfAbsent(ip, k -> new AttemptTracker());
+        int count = tracker.count.incrementAndGet();
+        tracker.lastAttempt = System.currentTimeMillis();
+        if (count >= MAX_FAILURES) {
+            tracker.bannedUntil = System.currentTimeMillis() + BAN_DURATION_MS;
+            logger.warn("IP {} 连续 {} 次验证失败，封禁 15 分钟", ip, count);
+        }
+    }
+
+    private static void clearFailures(String ip) {
+        if (ip == null || ip.isEmpty()) {
+            return;
+        }
+        failedAttempts.remove(ip);
+    }
+
+    private static void cleanupIfNeeded() {
+        long now = System.currentTimeMillis();
+        if (now - lastCleanup < CLEANUP_INTERVAL_MS) {
+            return;
+        }
+        lastCleanup = now;
+        failedAttempts.entrySet().removeIf(entry -> {
+            AttemptTracker t = entry.getValue();
+            return t.bannedUntil > 0 && t.bannedUntil <= now
+                    || t.bannedUntil == 0 && now - t.lastAttempt > BAN_DURATION_MS;
+        });
+    }
+
+    /**
+     * 发送 401 响应，带 WWW-Authenticate 头触发浏览器 Basic Auth 弹框。
+     */
+    public static void sendUnauthorized(ChannelHandlerContext ctx) {
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
+        response.headers().set(HttpHeaderNames.WWW_AUTHENTICATE, "Basic realm=\"llama.cpp-hub\", charset=\"UTF-8\"");
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
+        String body = "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}";
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.getBytes(StandardCharsets.UTF_8).length);
+        org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
+        ctx.write(response);
+        ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(body, StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 从请求中提取客户端 IP。
+     */
+    public static String getClientIp(ChannelHandlerContext ctx, FullHttpRequest request) {
+        // 优先从代理头获取
+        String forwarded = request.headers().get("x-forwarded-for");
+        if (forwarded != null && !forwarded.isEmpty()) {
+            int comma = forwarded.indexOf(',');
+            return comma > 0 ? forwarded.substring(0, comma).trim() : forwarded.trim();
+        }
+        String realIp = request.headers().get("x-real-ip");
+        if (realIp != null && !realIp.isEmpty()) {
+            return realIp.trim();
+        }
+        // 从 channel 获取
+        if (ctx.channel().remoteAddress() != null) {
+            String addr = ctx.channel().remoteAddress().toString();
+            // 格式: /192.168.1.1:12345
+            int slash = addr.indexOf('/');
+            int colon = addr.lastIndexOf(':');
+            if (slash >= 0 && colon > slash) {
+                return addr.substring(slash + 1, colon);
+            }
+        }
+        return "";
+    }
+}

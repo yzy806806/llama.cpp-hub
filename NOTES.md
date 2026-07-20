@@ -139,3 +139,46 @@ llama.cpp 支持两种 MTP 使用方式：
 | `/api/v1/models/unload` | POST |
 | `/api/v1/models/download` | POST |
 | `/api/v1/models/download/status` | GET |
+
+## 安全验证
+
+### API Key 保护
+
+在 `application.json` 中启用 API Key 后，**所有路径**（包括 WebUI）都需要验证：
+
+```json
+{
+  "security": {
+    "apiKeyEnabled": true,
+    "apiKey": "your-secret-key-here"
+  }
+}
+```
+
+| 路径 | 验证方式 |
+|------|---------|
+| `/v1/*` | `Authorization: Bearer <key>` 或 `x-api-key: <key>` |
+| WebUI、`/api/*`、管理接口 | `Authorization: Basic <base64(任意用户名:key)>`（浏览器自动弹框） |
+| `/.well-known/acme-challenge/*` | 不验证（ACME 证书申请需要） |
+
+- 浏览器访问 WebUI 时会弹出登录框，输入任意用户名 + API Key 作为密码即可
+- API 调用方继续使用 Bearer token 或 x-api-key
+- 使用常量时间比较（`MessageDigest.isEqual`），防止计时攻击
+- IP 级别暴力破解防护：连续 5 次验证失败后封禁 15 分钟
+
+### Let's Encrypt 证书申请
+
+通过 API 接口申请免费 TLS 证书（需要域名已解析到本机）：
+
+```
+POST /api/cert/acme
+{
+  "domain": "example.com",
+  "password": "optional-keystore-password"
+}
+```
+
+- 自动完成 ACME HTTP-01 验证流程
+- 证书保存为 `ssl/keystore.p12`，自动更新 HTTPS 配置
+- 申请完成后需重启服务生效
+- 域名需已解析到本机，且 80 端口可被 Let's Encrypt 验证器访问

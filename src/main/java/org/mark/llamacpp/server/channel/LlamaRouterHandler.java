@@ -15,6 +15,7 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.service.AnthropicService;
 import org.mark.llamacpp.server.service.OpenAIService;
 import org.mark.llamacpp.server.struct.ApiResponse;
+import org.mark.llamacpp.server.security.ApiKeyValidator;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
@@ -99,13 +100,14 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 	 */
     private void handleApiRequest(ChannelHandlerContext ctx, FullHttpRequest request, String uri) {
 		try {
-			// 验证key
-			if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
-				if (!this.validateApiKey(request)) {
-					LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.UNAUTHORIZED, "invalid api key");
-					return;
+				// 验证key
+				if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
+					String clientIp = ApiKeyValidator.getClientIp(ctx, request);
+					if (!ApiKeyValidator.validate(request, clientIp)) {
+						ApiKeyValidator.sendUnauthorized(ctx);
+						return;
+					}
 				}
-			}
 			
 			// OpenAI API 端点
 			// 获取模型列表
