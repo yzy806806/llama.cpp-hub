@@ -2,7 +2,6 @@ package org.mark.llamacpp.server.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -102,7 +101,6 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
      * 支持：
      * - Authorization: Bearer <key>（推荐，浏览器和 API 客户端统一用这个）
      * - x-api-key: <key>（Anthropic 风格）
-     * - Authorization: Basic <base64(任意用户名:key)>（向后兼容）
      *
      * @return true 如果验证通过或未启用验证
      */
@@ -131,28 +129,13 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
     }
 
     private static boolean doValidate(FullHttpRequest request, String expected) {
-        // 1. Bearer token
+        // 1. Bearer token（推荐）
         String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
-        if (auth != null) {
-            if (auth.startsWith("Bearer ")) {
-                return constantTimeEquals(auth.substring(7), expected);
-            }
-            // 2. Basic auth: base64(username:password)，密码 = apiKey
-            if (auth.startsWith("Basic ")) {
-                try {
-                    String decoded = new String(
-                            Base64.getDecoder().decode(auth.substring(6)),
-                            StandardCharsets.UTF_8);
-                    int colon = decoded.indexOf(':');
-                    String password = colon >= 0 ? decoded.substring(colon + 1) : decoded;
-                    return constantTimeEquals(password, expected);
-                } catch (IllegalArgumentException e) {
-                    return false;
-                }
-            }
+        if (auth != null && auth.startsWith("Bearer ")) {
+            return constantTimeEquals(auth.substring(7), expected);
         }
 
-        // 3. x-api-key header
+        // 2. x-api-key header（Anthropic 风格）
         String apiKey = request.headers().get("x-api-key");
         if (apiKey != null && !apiKey.isBlank()) {
             return constantTimeEquals(apiKey, expected);
@@ -260,7 +243,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
         LlamaServer.setCorsHeaders(response.headers());
         ctx.write(response);
-        ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(body, StandardCharsets.UTF_8));
+        ctx.writeAndFlush(io.netty.buffer.Unpooled.wrappedBuffer(body));
     }
 
     /**
