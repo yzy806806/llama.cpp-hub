@@ -89,7 +89,7 @@ public class AcmeCertController implements BaseController {
         return new String[]{token, keyAuth};
     }
 
-    private void handleAcmeRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
+    private synchronized void handleAcmeRequest(ChannelHandlerContext ctx, FullHttpRequest request) {
         try {
             this.assertRequestMethod(request.method() != HttpMethod.POST, I18N_METHOD_POST_ONLY);
             JsonObject body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);

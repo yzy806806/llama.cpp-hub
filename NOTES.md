@@ -165,6 +165,9 @@ llama.cpp 支持两种 MTP 使用方式：
 - API 调用方使用 Bearer token 或 x-api-key
 - 使用常量时间比较（`MessageDigest.isEqual`），防止计时攻击
 - IP 级别暴力破解防护：连续 5 次验证失败后封禁 15 分钟
+- 客户端 IP 直接从 TCP 连接提取，不信任 `X-Forwarded-For` / `X-Real-IP` 等可伪造的代理头，防止通过伪造代理头绕过 IP 限速
+- `/v1/chat/completions` 等流式接口的鉴权统一走 `ApiKeyValidator`，与普通 API 接口一致（含 Bearer / x-api-key / Cookie 三种验证方式）
+- ACME 证书申请接口加 `synchronized` 并发锁，防止多域名并发申请时 challenge 互相覆盖
 
 ### Let's Encrypt 证书申请
 

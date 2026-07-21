@@ -381,13 +381,17 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-						|| "Connection".equalsIgnoreCase(key)
-						|| "Content-Length".equalsIgnoreCase(key)
-						|| "Transfer-Encoding".equalsIgnoreCase(key)
-						|| "X-Node-Id".equalsIgnoreCase(key)) {
-					continue;
-				}
-				connection.setRequestProperty(key, entry.getValue());
+									|| "Connection".equalsIgnoreCase(key)
+									|| "Content-Length".equalsIgnoreCase(key)
+									|| "Transfer-Encoding".equalsIgnoreCase(key)
+									|| "X-Node-Id".equalsIgnoreCase(key)
+									|| "Authorization".equalsIgnoreCase(key)
+									|| "Cookie".equalsIgnoreCase(key)
+									|| "X-Forwarded-For".equalsIgnoreCase(key)
+									|| "X-Real-Ip".equalsIgnoreCase(key)) {
+								continue;
+							}
+							connection.setRequestProperty(key, entry.getValue());
 			}
 
 			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
@@ -452,13 +456,17 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-						|| "Connection".equalsIgnoreCase(key)
-						|| "Content-Length".equalsIgnoreCase(key)
-						|| "Transfer-Encoding".equalsIgnoreCase(key)
-						|| "X-Node-Id".equalsIgnoreCase(key)) {
-					continue;
-				}
-				connection.setRequestProperty(key, entry.getValue());
+									|| "Connection".equalsIgnoreCase(key)
+									|| "Content-Length".equalsIgnoreCase(key)
+									|| "Transfer-Encoding".equalsIgnoreCase(key)
+									|| "X-Node-Id".equalsIgnoreCase(key)
+									|| "Authorization".equalsIgnoreCase(key)
+									|| "Cookie".equalsIgnoreCase(key)
+									|| "X-Forwarded-For".equalsIgnoreCase(key)
+									|| "X-Real-Ip".equalsIgnoreCase(key)) {
+								continue;
+							}
+							connection.setRequestProperty(key, entry.getValue());
 			}
 
 			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);

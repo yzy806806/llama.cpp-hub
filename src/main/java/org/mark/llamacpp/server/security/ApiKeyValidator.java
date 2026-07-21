@@ -10,7 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -62,9 +62,9 @@ var k=document.getElementById('key').value.trim();
 if(!k)return;
 var b=document.getElementById('btn');b.disabled=true;
 var e=document.getElementById('err');e.textContent='';
-fetch('/api/sys/setting',{headers:{'Authorization':'Bearer '+k}})
+fetch('/api/auth/verify',{headers:{'Authorization':'Bearer '+k}})
 .then(function(r){if(!r.ok)throw 0;return r.json()})
-.then(function(){document.cookie='lh-api-key='+encodeURIComponent(k)+';path=/;max-age=604800';location.reload()})
+.then(function(){document.cookie='lh-api-key='+encodeURIComponent(k)+';path=/;max-age=604800;SameSite=Strict';location.reload()})
 .catch(function(){e.textContent='Invalid API Key';b.disabled=false})
 }
 document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key==='Enter')submit()});
@@ -105,7 +105,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
      *
      * @return true 如果验证通过或未启用验证
      */
-    public static boolean validate(FullHttpRequest request, String clientIp) {
+    public static boolean validate(HttpRequest request, String clientIp) {
         if (!LlamaServer.isApiKeyValidationEnabled()) {
             return true;
         }
@@ -129,7 +129,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
         return ok;
     }
 
-    private static boolean doValidate(FullHttpRequest request, String expected) {
+    private static boolean doValidate(HttpRequest request, String expected) {
         // 1. Bearer token（推荐，API 客户端用）
         String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
         if (auth != null && auth.startsWith("Bearer ")) {
@@ -239,7 +239,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
      * 浏览器请求（Accept: text/html）返回登录页 HTML；
      * API 请求返回 JSON 401。
      */
-    public static void sendUnauthorized(ChannelHandlerContext ctx, FullHttpRequest request) {
+    public static void sendUnauthorized(ChannelHandlerContext ctx, HttpRequest request) {
         String accept = request.headers().get(HttpHeaderNames.ACCEPT);
         boolean isBrowser = accept != null && accept.contains("text/html");
 
@@ -252,7 +252,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
 
     private static void sendHtmlResponse(ChannelHandlerContext ctx, String html) {
         byte[] body = html.getBytes(StandardCharsets.UTF_8);
-        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8");
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
         LlamaServer.setCorsHeaders(response.headers());
@@ -273,18 +273,8 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
     /**
      * 从请求中提取客户端 IP。
      */
-    public static String getClientIp(ChannelHandlerContext ctx, FullHttpRequest request) {
-        // 优先从代理头获取
-        String forwarded = request.headers().get("x-forwarded-for");
-        if (forwarded != null && !forwarded.isEmpty()) {
-            int comma = forwarded.indexOf(',');
-            return comma > 0 ? forwarded.substring(0, comma).trim() : forwarded.trim();
-        }
-        String realIp = request.headers().get("x-real-ip");
-        if (realIp != null && !realIp.isEmpty()) {
-            return realIp.trim();
-        }
-        // 从 channel 获取
+    public static String getClientIp(ChannelHandlerContext ctx, HttpRequest request) {
+        // 直接从 TCP 连接提取客户端 IP，不信任 X-Forwarded-For / X-Real-IP 等可伪造的代理头
         if (ctx.channel().remoteAddress() != null) {
             String addr = ctx.channel().remoteAddress().toString();
             // 格式: /192.168.1.1:12345
