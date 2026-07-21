@@ -99,10 +99,10 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
 
     /**
      * 验证请求是否携带正确的 API Key。
-     * 支持三种方式：
-     * - Authorization: Bearer <key>
-     * - x-api-key: <key>
-     * - Authorization: Basic <base64(任意用户名:key)>
+     * 支持：
+     * - Authorization: Bearer <key>（推荐，浏览器和 API 客户端统一用这个）
+     * - x-api-key: <key>（Anthropic 风格）
+     * - Authorization: Basic <base64(任意用户名:key)>（向后兼容）
      *
      * @return true 如果验证通过或未启用验证
      */
@@ -237,32 +237,28 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
         boolean isBrowser = accept != null && accept.contains("text/html");
 
         if (isBrowser) {
-            String html = LOGIN_PAGE_HTML;
-            byte[] body = html.getBytes(StandardCharsets.UTF_8);
-            HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
-            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8");
-            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
-            org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
-            ctx.write(response);
-            ctx.writeAndFlush(io.netty.buffer.Unpooled.wrappedBuffer(body));
+            sendHtmlResponse(ctx, LOGIN_PAGE_HTML);
         } else {
-            HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
-            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
-            String body = "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}";
-            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.getBytes(StandardCharsets.UTF_8).length);
-            org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
-            ctx.write(response);
-            ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(body, StandardCharsets.UTF_8));
+            sendJsonResponse(ctx, "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}", HttpResponseStatus.UNAUTHORIZED);
         }
     }
 
-    /** 旧方法保留兼容，默认走 JSON 401 */
-    public static void sendUnauthorized(ChannelHandlerContext ctx) {
-        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
+    private static void sendHtmlResponse(ChannelHandlerContext ctx, String html) {
+        byte[] body = html.getBytes(StandardCharsets.UTF_8);
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8");
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
+        LlamaServer.setCorsHeaders(response.headers());
+        ctx.write(response);
+        ctx.writeAndFlush(io.netty.buffer.Unpooled.wrappedBuffer(body));
+    }
+
+    private static void sendJsonResponse(ChannelHandlerContext ctx, String json, HttpResponseStatus status) {
+        byte[] body = json.getBytes(StandardCharsets.UTF_8);
+        HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, status);
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
-        String body = "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}";
-        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.getBytes(StandardCharsets.UTF_8).length);
-        org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
+        LlamaServer.setCorsHeaders(response.headers());
         ctx.write(response);
         ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(body, StandardCharsets.UTF_8));
     }

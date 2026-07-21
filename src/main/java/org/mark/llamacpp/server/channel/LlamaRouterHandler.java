@@ -226,34 +226,6 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		logger.info("处理请求时发生异常", cause);
 		ctx.close();
 	}
-	
-	/**
-	 * 	做判断
-	 * @param request
-	 * @return
-	 */
-	private boolean validateApiKey(FullHttpRequest request) {
-		if (!LlamaServer.isApiKeyValidationEnabled()) {
-			return true;
-		}
-		String expected = LlamaServer.getApiKey();
-		if (expected == null || expected.isBlank()) {
-			return false;
-		}
-
-		String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
-		if (auth != null) {
-			auth = auth.replace("Bearer ", "");
-			return auth.equals(expected);
-		}
-
-		String apiKey = request.headers().get("x-api-key");
-		if (apiKey != null && !apiKey.isBlank()) {
-			return apiKey.equals(expected);
-		}
-
-		return false;
-	}
 
 	private boolean isAnthropicClient(FullHttpRequest request) {
 		String anthropicVersion = request.headers().get("anthropic-version");
