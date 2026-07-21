@@ -18,8 +18,19 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 
-/** 登录页 HTML，浏览器无 API Key 时返回 */
-private static final String LOGIN_PAGE_HTML = """
+/**
+ * API Key 安全验证工具。
+ * 提供：
+ * 1. 常量时间比较（防计时攻击）
+ * 2. Bearer / x-api-key 验证方式
+ * 3. IP 级别暴力破解防护（5 次失败后封禁 15 分钟）
+ */
+public class ApiKeyValidator {
+
+    private static final Logger logger = LoggerFactory.getLogger(ApiKeyValidator.class);
+
+    /** 登录页 HTML，浏览器无 API Key 时返回 */
+    private static final String LOGIN_PAGE_HTML = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -62,17 +73,6 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
 </body>
 </html>
 """;
-
-/**
- * API Key 安全验证工具。
- * 提供：
- * 1. 常量时间比较（防计时攻击）
- * 2. Bearer / x-api-key / Basic Auth 三种验证方式
- * 3. IP 级别暴力破解防护（5 次失败后封禁 15 分钟）
- */
-public class ApiKeyValidator {
-
-    private static final Logger logger = LoggerFactory.getLogger(ApiKeyValidator.class);
 
     /** 最大失败次数 */
     private static final int MAX_FAILURES = 5;
