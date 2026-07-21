@@ -64,7 +64,7 @@ var b=document.getElementById('btn');b.disabled=true;
 var e=document.getElementById('err');e.textContent='';
 fetch('/api/sys/setting',{headers:{'Authorization':'Bearer '+k}})
 .then(function(r){if(!r.ok)throw 0;return r.json()})
-.then(function(){localStorage.setItem('lh-api-key',k);location.reload()})
+.then(function(){document.cookie='lh-api-key='+encodeURIComponent(k)+';path=/;max-age=604800';location.reload()})
 .catch(function(){e.textContent='Invalid API Key';b.disabled=false})
 }
 document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key==='Enter')submit()});
@@ -99,8 +99,9 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
     /**
      * 验证请求是否携带正确的 API Key。
      * 支持：
-     * - Authorization: Bearer <key>（推荐，浏览器和 API 客户端统一用这个）
+     * - Authorization: Bearer <key>（推荐，API 客户端用）
      * - x-api-key: <key>（Anthropic 风格）
+     * - Cookie: lh-api-key=<key>（浏览器导航请求自动携带）
      *
      * @return true 如果验证通过或未启用验证
      */
@@ -129,7 +130,7 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
     }
 
     private static boolean doValidate(FullHttpRequest request, String expected) {
-        // 1. Bearer token（推荐）
+        // 1. Bearer token（推荐，API 客户端用）
         String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
         if (auth != null && auth.startsWith("Bearer ")) {
             return constantTimeEquals(auth.substring(7), expected);
@@ -141,7 +142,30 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
             return constantTimeEquals(apiKey, expected);
         }
 
+        // 3. Cookie（浏览器导航请求自动携带）
+        String cookieHeader = request.headers().get(HttpHeaderNames.COOKIE);
+        if (cookieHeader != null) {
+            String cookieKey = extractCookie(cookieHeader, "lh-api-key");
+            if (cookieKey != null && !cookieKey.isEmpty()) {
+                return constantTimeEquals(cookieKey, expected);
+            }
+        }
+
         return false;
+    }
+
+    private static String extractCookie(String cookieHeader, String name) {
+        for (String cookie : cookieHeader.split(";")) {
+            String trimmed = cookie.trim();
+            if (trimmed.startsWith(name + "=")) {
+                try {
+                    return java.net.URLDecoder.decode(trimmed.substring(name.length() + 1), StandardCharsets.UTF_8);
+                } catch (Exception e) {
+                    return trimmed.substring(name.length() + 1);
+                }
+            }
+        }
+        return null;
     }
 
     /**
