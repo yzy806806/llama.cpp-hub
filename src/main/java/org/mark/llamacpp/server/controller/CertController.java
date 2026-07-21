@@ -80,7 +80,7 @@ public class CertController implements BaseController {
             Map<String, Object> data = new HashMap<>();
             data.put("exists", exists);
             data.put("path", keystorePath);
-            data.put("password", LlamaServer.getHttpsPassword());
+            data.put("passwordConfigured", LlamaServer.getHttpsPassword() != null && !LlamaServer.getHttpsPassword().isBlank());
             data.put("caCertPath", caCertPath.toString());
             data.put("caCertExists", caExists);
             if (exists) {
