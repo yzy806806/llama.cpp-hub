@@ -158,11 +158,11 @@ llama.cpp 支持两种 MTP 使用方式：
 | 路径 | 验证方式 |
 |------|---------|
 | `/v1/*` | `Authorization: Bearer <key>` 或 `x-api-key: <key>` |
-| WebUI、`/api/*`、管理接口 | `Authorization: Basic <base64(任意用户名:key)>`（浏览器自动弹框） |
+| WebUI、`/api/*`、管理接口 | `Authorization: Bearer <key>`（无 key 时返回登录页，输入后存 localStorage 自动注入） |
 | `/.well-known/acme-challenge/*` | 不验证（ACME 证书申请需要） |
 
-- 浏览器访问 WebUI 时会弹出登录框，输入任意用户名 + API Key 作为密码即可
-- API 调用方继续使用 Bearer token 或 x-api-key
+- 浏览器访问 WebUI 时显示登录页，输入 API Key 后自动存入 localStorage，后续请求自动带 Bearer token
+- API 调用方使用 Bearer token 或 x-api-key
 - 使用常量时间比较（`MessageDigest.isEqual`），防止计时攻击
 - IP 级别暴力破解防护：连续 5 次验证失败后封禁 15 分钟
 

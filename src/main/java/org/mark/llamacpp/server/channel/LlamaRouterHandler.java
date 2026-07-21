@@ -100,14 +100,14 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 	 */
     private void handleApiRequest(ChannelHandlerContext ctx, FullHttpRequest request, String uri) {
 		try {
-				// 验证key
-				if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
-					String clientIp = ApiKeyValidator.getClientIp(ctx, request);
-					if (!ApiKeyValidator.validate(request, clientIp)) {
-						ApiKeyValidator.sendUnauthorized(ctx);
-						return;
-					}
-				}
+		// 验证key
+		if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
+			String clientIp = ApiKeyValidator.getClientIp(ctx, request);
+			if (!ApiKeyValidator.validate(request, clientIp)) {
+				ApiKeyValidator.sendUnauthorized(ctx, request);
+				return;
+			}
+		}
 			
 			// OpenAI API 端点
 			// 获取模型列表

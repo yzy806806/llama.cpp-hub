@@ -12,6 +12,25 @@
     <script>
         // Restore saved theme before first paint to avoid flash; restore language-switch curtain if needed.
         (function () {
+            // API Key: monkey-patch fetch to auto-inject Bearer token from localStorage
+            var apiKey = localStorage.getItem('lh-api-key');
+            if (apiKey) {
+                var origFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    init = init || {};
+                    init.headers = init.headers || {};
+                    // 不重复添加
+                    if (init.headers['Authorization'] || (init.headers instanceof Headers && init.headers.get('Authorization'))) {
+                        return origFetch(input, init);
+                    }
+                    if (init.headers instanceof Headers) {
+                        init.headers.set('Authorization', 'Bearer ' + apiKey);
+                    } else {
+                        init.headers['Authorization'] = 'Bearer ' + apiKey;
+                    }
+                    return origFetch(input, init);
+                };
+            }
             try {
                 const saved = localStorage.getItem('llama-hub-theme');
                 if (saved === 'dark' || saved === 'light') {

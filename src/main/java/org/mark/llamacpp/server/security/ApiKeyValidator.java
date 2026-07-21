@@ -18,6 +18,51 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpVersion;
 import io.netty.handler.codec.http.DefaultHttpResponse;
 
+/** 登录页 HTML，浏览器无 API Key 时返回 */
+private static final String LOGIN_PAGE_HTML = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>llama.cpp-hub</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#1a1a2e;color:#e0e0e0}
+.card{background:#16213e;padding:2rem;border-radius:0.75rem;box-shadow:0 4px 24px rgba(0,0,0,.4);width:90%;max-width:360px}
+.card h1{font-size:1.1rem;margin-bottom:1.2rem;text-align:center;color:#e94560}
+.card input{width:100%;padding:0.65rem 0.8rem;border:1px solid #333;border-radius:0.4rem;background:#0f3460;color:#e0e0e0;font-size:0.9rem;outline:none}
+.card input:focus{border-color:#e94560}
+.card button{width:100%;margin-top:0.8rem;padding:0.65rem;border:none;border-radius:0.4rem;background:#e94560;color:#fff;font-size:0.9rem;cursor:pointer}
+.card button:hover{background:#c81d45}
+.card button:disabled{opacity:.6;cursor:wait}
+.err{color:#ff6b6b;font-size:0.8rem;margin-top:0.6rem;text-align:center;min-height:1rem}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>llama.cpp-hub</h1>
+<input type="password" id="key" placeholder="API Key" autofocus />
+<button id="btn" onclick="submit()">Login</button>
+<div class="err" id="err"></div>
+</div>
+<script>
+function submit(){
+var k=document.getElementById('key').value.trim();
+if(!k)return;
+var b=document.getElementById('btn');b.disabled=true;
+var e=document.getElementById('err');e.textContent='';
+fetch('/api/sys/setting',{headers:{'Authorization':'Bearer '+k}})
+.then(function(r){if(!r.ok)throw 0;return r.json()})
+.then(function(){localStorage.setItem('lh-api-key',k);location.reload()})
+.catch(function(){e.textContent='Invalid API Key';b.disabled=false})
+}
+document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key==='Enter')submit()});
+</script>
+</body>
+</html>
+""";
+
 /**
  * API Key 安全验证工具。
  * 提供：
@@ -183,11 +228,37 @@ public class ApiKeyValidator {
     }
 
     /**
-     * 发送 401 响应，带 WWW-Authenticate 头触发浏览器 Basic Auth 弹框。
+     * 发送 401 响应。
+     * 浏览器请求（Accept: text/html）返回登录页 HTML；
+     * API 请求返回 JSON 401。
      */
+    public static void sendUnauthorized(ChannelHandlerContext ctx, FullHttpRequest request) {
+        String accept = request.headers().get(HttpHeaderNames.ACCEPT);
+        boolean isBrowser = accept != null && accept.contains("text/html");
+
+        if (isBrowser) {
+            String html = LOGIN_PAGE_HTML;
+            byte[] body = html.getBytes(StandardCharsets.UTF_8);
+            HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/html; charset=utf-8");
+            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
+            org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
+            ctx.write(response);
+            ctx.writeAndFlush(io.netty.buffer.Unpooled.wrappedBuffer(body));
+        } else {
+            HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
+            response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
+            String body = "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}";
+            response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.getBytes(StandardCharsets.UTF_8).length);
+            org.mark.llamacpp.server.LlamaServer.setCorsHeaders(response.headers());
+            ctx.write(response);
+            ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer(body, StandardCharsets.UTF_8));
+        }
+    }
+
+    /** 旧方法保留兼容，默认走 JSON 401 */
     public static void sendUnauthorized(ChannelHandlerContext ctx) {
         HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.UNAUTHORIZED);
-        response.headers().set(HttpHeaderNames.WWW_AUTHENTICATE, "Basic realm=\"llama.cpp-hub\", charset=\"UTF-8\"");
         response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/json; charset=utf-8");
         String body = "{\"error\":{\"message\":\"Unauthorized\",\"type\":\"authentication_error\"}}";
         response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.getBytes(StandardCharsets.UTF_8).length);
