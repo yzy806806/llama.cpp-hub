@@ -15,6 +15,7 @@ import org.mark.llamacpp.server.NodeManager;
 import org.mark.llamacpp.server.service.AnthropicService;
 import org.mark.llamacpp.server.service.OpenAIService;
 import org.mark.llamacpp.server.struct.ApiResponse;
+import org.mark.llamacpp.server.security.ApiKeyValidator;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.mark.llamacpp.server.tools.ParamTool;
 import org.slf4j.Logger;
@@ -99,13 +100,14 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 	 */
     private void handleApiRequest(ChannelHandlerContext ctx, FullHttpRequest request, String uri) {
 		try {
-			// 验证key
-			if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
-				if (!this.validateApiKey(request)) {
-					LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.UNAUTHORIZED, "invalid api key");
-					return;
-				}
+		// 验证key
+		if (uri.startsWith("/v1") && request.method() != HttpMethod.OPTIONS) {
+			String clientIp = ApiKeyValidator.getClientIp(ctx, request);
+			if (!ApiKeyValidator.validate(request, clientIp)) {
+				ApiKeyValidator.sendUnauthorized(ctx, request);
+				return;
 			}
+		}
 			
 			// OpenAI API 端点
 			// 获取模型列表
@@ -223,34 +225,6 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
 		logger.info("处理请求时发生异常", cause);
 		ctx.close();
-	}
-	
-	/**
-	 * 	做判断
-	 * @param request
-	 * @return
-	 */
-	private boolean validateApiKey(FullHttpRequest request) {
-		if (!LlamaServer.isApiKeyValidationEnabled()) {
-			return true;
-		}
-		String expected = LlamaServer.getApiKey();
-		if (expected == null || expected.isBlank()) {
-			return false;
-		}
-
-		String auth = request.headers().get(HttpHeaderNames.AUTHORIZATION);
-		if (auth != null) {
-			auth = auth.replace("Bearer ", "");
-			return auth.equals(expected);
-		}
-
-		String apiKey = request.headers().get("x-api-key");
-		if (apiKey != null && !apiKey.isBlank()) {
-			return apiKey.equals(expected);
-		}
-
-		return false;
 	}
 
 	private boolean isAnthropicClient(FullHttpRequest request) {
@@ -407,13 +381,17 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-						|| "Connection".equalsIgnoreCase(key)
-						|| "Content-Length".equalsIgnoreCase(key)
-						|| "Transfer-Encoding".equalsIgnoreCase(key)
-						|| "X-Node-Id".equalsIgnoreCase(key)) {
-					continue;
-				}
-				connection.setRequestProperty(key, entry.getValue());
+									|| "Connection".equalsIgnoreCase(key)
+									|| "Content-Length".equalsIgnoreCase(key)
+									|| "Transfer-Encoding".equalsIgnoreCase(key)
+									|| "X-Node-Id".equalsIgnoreCase(key)
+									|| "Authorization".equalsIgnoreCase(key)
+									|| "Cookie".equalsIgnoreCase(key)
+									|| "X-Forwarded-For".equalsIgnoreCase(key)
+									|| "X-Real-Ip".equalsIgnoreCase(key)) {
+								continue;
+							}
+							connection.setRequestProperty(key, entry.getValue());
 			}
 
 			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
@@ -478,13 +456,17 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-						|| "Connection".equalsIgnoreCase(key)
-						|| "Content-Length".equalsIgnoreCase(key)
-						|| "Transfer-Encoding".equalsIgnoreCase(key)
-						|| "X-Node-Id".equalsIgnoreCase(key)) {
-					continue;
-				}
-				connection.setRequestProperty(key, entry.getValue());
+									|| "Connection".equalsIgnoreCase(key)
+									|| "Content-Length".equalsIgnoreCase(key)
+									|| "Transfer-Encoding".equalsIgnoreCase(key)
+									|| "X-Node-Id".equalsIgnoreCase(key)
+									|| "Authorization".equalsIgnoreCase(key)
+									|| "Cookie".equalsIgnoreCase(key)
+									|| "X-Forwarded-For".equalsIgnoreCase(key)
+									|| "X-Real-Ip".equalsIgnoreCase(key)) {
+								continue;
+							}
+							connection.setRequestProperty(key, entry.getValue());
 			}
 
 			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
