@@ -813,9 +813,9 @@ public class SystemController implements BaseController {
 			data.put("download", download);
 			
 			Map<String, Object> security = new HashMap<>();
-					security.put("apiKeyEnabled", LlamaServer.isApiKeyValidationEnabled());
-					security.put("apiKeyConfigured", LlamaServer.getApiKey() != null && !LlamaServer.getApiKey().isBlank());
-					data.put("security", security);
+			security.put("apiKeyEnabled", LlamaServer.isApiKeyValidationEnabled());
+			security.put("apiKeyConfigured", LlamaServer.getApiKey() != null && !LlamaServer.getApiKey().isBlank());
+			data.put("security", security);
 			
 			Map<String, Object> compat = new HashMap<>();
 			Map<String, Object> mcpServer = new HashMap<>();
