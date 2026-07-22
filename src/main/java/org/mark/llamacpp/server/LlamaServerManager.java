@@ -2402,7 +2402,7 @@ if (loadSuccess.get()) {
 		}
 
 		if (!hasFlagToken(userArgs, "--host")) {
-			sb.append(" --host 0.0.0.0");
+			sb.append(" --host 127.0.0.1");
 		}
 		if (!hasFlagToken(userArgs, "--timeout")) {
 			sb.append(" --timeout 36000");
