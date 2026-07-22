@@ -37,7 +37,6 @@ import org.mark.llamacpp.server.controller.ProxyController;
 import org.mark.llamacpp.server.controller.ParamController;
 import org.mark.llamacpp.server.controller.SystemController;
 import org.mark.llamacpp.server.controller.CertController;
-import org.mark.llamacpp.server.controller.AcmeCertController;
 import org.mark.llamacpp.server.controller.ToolController;
 import org.mark.llamacpp.server.controller.UsageReportController;
 import org.mark.llamacpp.server.security.ApiKeyValidator;
@@ -61,10 +60,7 @@ import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import io.netty.handler.codec.http.HttpVersion;
-import io.netty.handler.codec.http.DefaultHttpResponse;
 import io.netty.util.CharsetUtil;
 import io.netty.util.ReferenceCountUtil;
 
@@ -114,7 +110,6 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		pipeline.add(new UsageReportController());
 		pipeline.add(new AutoLoadPolicyController());
 		pipeline.add(new CertController());
-		pipeline.add(new AcmeCertController());
 		pipeline.add(new BuildController());
 	}
 	
@@ -178,28 +173,6 @@ public class BasicRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		}
 		if (request.method() == HttpMethod.OPTIONS) {
 			LlamaServer.sendCorsResponse(ctx);
-			return;
-		}
-
-		// ACME HTTP-01 challenge 响应（在安全验证之前，Let's Encrypt 验证器不携带 API Key）
-		if (routingUri.startsWith("/.well-known/acme-challenge/")) {
-			String[] challenge = AcmeCertController.getPendingChallenge();
-			if (challenge != null) {
-				String token = routingUri.substring("/.well-known/acme-challenge/".length());
-				if (token.equals(challenge[0])) {
-					// 返回 key authorization
-					byte[] body = challenge[1].getBytes(java.nio.charset.StandardCharsets.UTF_8);
-					HttpResponse response = new DefaultHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.OK);
-					response.headers().set(HttpHeaderNames.CONTENT_TYPE, "application/octet-stream");
-					response.headers().set(HttpHeaderNames.CONTENT_LENGTH, body.length);
-					LlamaServer.setCorsHeaders(response.headers());
-					ctx.write(response);
-					ctx.writeAndFlush(io.netty.buffer.Unpooled.wrappedBuffer(body));
-					return;
-				}
-			}
-			// 无匹配 challenge，返回 404
-			LlamaServer.sendErrorResponse(ctx, HttpResponseStatus.NOT_FOUND, "ACME challenge not found");
 			return;
 		}
 

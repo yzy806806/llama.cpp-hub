@@ -2024,9 +2024,6 @@
         const httpsCertGenBtn = byId('httpsCertGenBtn');
         if (httpsCertGenBtn) httpsCertGenBtn.addEventListener('click', generateHttpsCert);
 
-        const acmeCertBtn = byId('acmeCertBtn');
-        if (acmeCertBtn) acmeCertBtn.addEventListener('click', requestAcmeCert);
-
         const httpsCertGenCopyCmdBtn = byId('httpsCertGenCopyCmdBtn');
         if (httpsCertGenCopyCmdBtn) httpsCertGenCopyCmdBtn.addEventListener('click', copyHttpsCertCommand);
 
@@ -2231,66 +2228,5 @@
     window.loadProxyConfig = loadProxyConfig;
     window.saveProxyConfig = saveProxyConfig;
     window.testProxyConnection = testProxyConnection;
-
-    // ========== ACME Certificate ==========
-    async function requestAcmeCert() {
-        const btn = byId('acmeCertBtn');
-        const status = byId('acmeCertStatus');
-        const errorEl = byId('acmeCertError');
-        const resultEl = byId('acmeCertResult');
-        const domain = (byId('acmeDomain')?.value || '').trim();
-
-        if (errorEl) { errorEl.style.display = 'none'; errorEl.textContent = ''; }
-        if (resultEl) resultEl.style.display = 'none';
-
-        if (!domain) {
-            if (errorEl) {
-                errorEl.textContent = t('page.settings.https.acme_error_domain', 'Please enter a domain name');
-                errorEl.style.display = 'block';
-            }
-            return;
-        }
-
-        if (btn) btn.disabled = true;
-        if (status) status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + t('page.settings.https.acme_running', 'Requesting certificate...');
-
-        try {
-            const resp = await fetch('/api/cert/acme', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain })
-            });
-            const json = await resp.json();
-
-            if (!json || !json.success) {
-                if (errorEl) {
-                    errorEl.textContent = (json && json.error) ? json.error : t('page.settings.https.acme_failed', 'Request failed');
-                    errorEl.style.display = 'block';
-                }
-                if (status) status.innerHTML = '';
-                return;
-            }
-
-            if (resultEl) {
-                resultEl.style.display = 'block';
-                resultEl.innerHTML =
-                    '<div style="color:#10b981;font-weight:600;margin-bottom:0.35rem;"><i class="fas fa-check-circle"></i> ' + t('page.settings.https.acme_success', 'Certificate issued successfully') + '</div>' +
-                    '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.2rem 0;"><span style="color:var(--text-secondary);">' + t('page.settings.https.cert_gen_result_path', 'Path') + '</span><code style="word-break:break-all;">' + escapeHtml(json.data.path || '') + '</code></div>' +
-                    '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.2rem 0;"><span style="color:var(--text-secondary);">Domain</span><code>' + escapeHtml(json.data.domain || '') + '</code></div>' +
-                    '<div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.2rem 0;"><span style="color:var(--text-secondary);">' + t('page.settings.https.cert_gen_result_password', 'Password') + '</span><code>' + escapeHtml(json.data.password || '') + '</code></div>' +
-                    '<div style="margin-top:0.35rem;color:var(--text-secondary);font-size:0.7rem;">' + escapeHtml(json.data.message || '') + '</div>';
-            }
-            if (status) status.innerHTML = '<i class="fas fa-check-circle" style="color:#10b981;"></i> OK';
-        } catch (e) {
-            if (errorEl) {
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            }
-            if (status) status.innerHTML = '';
-        } finally {
-            if (btn) btn.disabled = false;
-        }
-    }
-    window.requestAcmeCert = requestAcmeCert;
     window.populateSettingsNodeSelect = populateSettingsNodeSelect;
 })();

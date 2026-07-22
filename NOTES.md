@@ -158,30 +158,12 @@ llama.cpp 支持两种 MTP 使用方式：
 | 路径 | 验证方式 |
 |------|---------|
 | `/v1/*` | `Authorization: Bearer <key>` 或 `x-api-key: <key>` |
-| WebUI、`/api/*`、管理接口 | `Authorization: Bearer <key>`（无 key 时返回登录页，输入后存 localStorage 自动注入） |
-| `/.well-known/acme-challenge/*` | 不验证（ACME 证书申请需要） |
+| WebUI、`/api/*`、管理接口 | `Authorization: Bearer <key>`（无 key 时返回登录页，输入后存 Cookie 自动注入） |
 
-- 浏览器访问 WebUI 时显示登录页，输入 API Key 后自动存入 localStorage，后续请求自动带 Bearer token
+- 浏览器访问 WebUI 时显示登录页，输入 API Key 后自动存入 Cookie，后续请求自动带 Bearer token
 - API 调用方使用 Bearer token 或 x-api-key
 - 使用常量时间比较（`MessageDigest.isEqual`），防止计时攻击
 - IP 级别暴力破解防护：连续 5 次验证失败后封禁 15 分钟
-- 客户端 IP 直接从 TCP 连接提取，不信任 `X-Forwarded-For` / `X-Real-IP` 等可伪造的代理头，防止通过伪造代理头绕过 IP 限速
-- `/v1/chat/completions` 等流式接口的鉴权统一走 `ApiKeyValidator`，与普通 API 接口一致（含 Bearer / x-api-key / Cookie 三种验证方式）
-- ACME 证书申请接口加 `synchronized` 并发锁，防止多域名并发申请时 challenge 互相覆盖
-
-### Let's Encrypt 证书申请
-
-通过 API 接口申请免费 TLS 证书（需要域名已解析到本机）：
-
-```
-POST /api/cert/acme
-{
-  "domain": "example.com",
-  "password": "optional-keystore-password"
-}
-```
-
-- 自动完成 ACME HTTP-01 验证流程
-- 证书保存为 `ssl/keystore.p12`，自动更新 HTTPS 配置
-- 申请完成后需重启服务生效
-- 域名需已解析到本机，且 80 端口可被 Let's Encrypt 验证器访问
+- 客户端 IP 直接从 TCP 连接提取，不信任 `X-Forwarded-For` / `X-Real-IP` 等可伪造的代理头
+- `/v1/chat/completions` 等流式接口、WebSocket 握手、文件上传/下载均统一走 `ApiKeyValidator` 鉴权
+- `/api/sys/setting` 和 `/api/cert/status` 不再返回明文 apiKey / keystorePassword
