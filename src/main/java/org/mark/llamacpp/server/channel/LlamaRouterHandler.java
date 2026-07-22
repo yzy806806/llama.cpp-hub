@@ -358,9 +358,9 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 					}
 				}
 				if (found) {
-								logger.info("[Control路由] 远程节点匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
-								return new String[]{node.getBaseUrl() + "/v1/chat/completions/control", node.getApiKey()};
-							}
+					logger.info("[Control路由] 远程节点匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+					return new String[]{node.getBaseUrl() + "/v1/chat/completions/control", node.getApiKey()};
+				}
 			} catch (Exception ignore) {
 			}
 		}
@@ -381,20 +381,20 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-									|| "Connection".equalsIgnoreCase(key)
-									|| "Content-Length".equalsIgnoreCase(key)
-									|| "Transfer-Encoding".equalsIgnoreCase(key)
-									|| "X-Node-Id".equalsIgnoreCase(key)
-									|| "Authorization".equalsIgnoreCase(key)
-									|| "Cookie".equalsIgnoreCase(key)
-									|| "X-Forwarded-For".equalsIgnoreCase(key)
-									|| "X-Real-Ip".equalsIgnoreCase(key)) {
-								continue;
-							}
-							connection.setRequestProperty(key, entry.getValue());
-									}
+						|| "Connection".equalsIgnoreCase(key)
+						|| "Content-Length".equalsIgnoreCase(key)
+						|| "Transfer-Encoding".equalsIgnoreCase(key)
+						|| "X-Node-Id".equalsIgnoreCase(key)
+						|| "Authorization".equalsIgnoreCase(key)
+						|| "Cookie".equalsIgnoreCase(key)
+						|| "X-Forwarded-For".equalsIgnoreCase(key)
+						|| "X-Real-Ip".equalsIgnoreCase(key)) {
+					continue;
+				}
+				connection.setRequestProperty(key, entry.getValue());
+			}
 
-									byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
+			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
 			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
 			try (OutputStream os = connection.getOutputStream()) {
 				os.write(outBytes);
@@ -456,25 +456,25 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 				String key = entry.getKey();
 				if (key == null) continue;
 				if ("Host".equalsIgnoreCase(key)
-									|| "Connection".equalsIgnoreCase(key)
-									|| "Content-Length".equalsIgnoreCase(key)
-									|| "Transfer-Encoding".equalsIgnoreCase(key)
-									|| "X-Node-Id".equalsIgnoreCase(key)
-									|| "Authorization".equalsIgnoreCase(key)
-									|| "Cookie".equalsIgnoreCase(key)
-									|| "X-Forwarded-For".equalsIgnoreCase(key)
-									|| "X-Real-Ip".equalsIgnoreCase(key)) {
-								continue;
-							}
-							connection.setRequestProperty(key, entry.getValue());
-									}
+						|| "Connection".equalsIgnoreCase(key)
+						|| "Content-Length".equalsIgnoreCase(key)
+						|| "Transfer-Encoding".equalsIgnoreCase(key)
+						|| "X-Node-Id".equalsIgnoreCase(key)
+						|| "Authorization".equalsIgnoreCase(key)
+						|| "Cookie".equalsIgnoreCase(key)
+						|| "X-Forwarded-For".equalsIgnoreCase(key)
+						|| "X-Real-Ip".equalsIgnoreCase(key)) {
+					continue;
+				}
+				connection.setRequestProperty(key, entry.getValue());
+			}
 
-									// 添加远程节点的 API Key 认证
-									if (nodeApiKey != null && !nodeApiKey.isBlank()) {
-										connection.setRequestProperty("Authorization", "Bearer " + nodeApiKey);
-									}
+			// 添加远程节点的 API Key 认证
+			if (nodeApiKey != null && !nodeApiKey.isBlank()) {
+				connection.setRequestProperty("Authorization", "Bearer " + nodeApiKey);
+			}
 
-									byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
+			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
 			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
 			try (OutputStream os = connection.getOutputStream()) {
 				os.write(outBytes);
