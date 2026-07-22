@@ -64,7 +64,7 @@ var b=document.getElementById('btn');b.disabled=true;
 var e=document.getElementById('err');e.textContent='';
 fetch('/api/auth/verify',{headers:{'Authorization':'Bearer '+k}})
 .then(function(r){if(!r.ok)throw 0;return r.json()})
-.then(function(){document.cookie='lh-api-key='+encodeURIComponent(k)+';path=/;max-age=604800;SameSite=Strict';location.reload()})
+.then(function(){document.cookie='lh-api-key='+encodeURIComponent(k)+';path=/;max-age=604800;SameSite=Strict'+(location.protocol==='https:'?';Secure':'');location.reload()})
 .catch(function(){e.textContent='Invalid API Key';b.disabled=false})
 }
 document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key==='Enter')submit()});
@@ -205,6 +205,11 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
             return;
         }
         cleanupIfNeeded();
+        // 防止 map 无限增长：超过上限时不再记录新 IP
+        if (failedAttempts.size() >= 10000 && !failedAttempts.containsKey(ip)) {
+            logger.warn("failedAttempts map 已达上限 (10000)，跳过新 IP 记录: {}", ip);
+            return;
+        }
         AttemptTracker tracker = failedAttempts.computeIfAbsent(ip, k -> new AttemptTracker());
         int count = tracker.count.incrementAndGet();
         tracker.lastAttempt = System.currentTimeMillis();
