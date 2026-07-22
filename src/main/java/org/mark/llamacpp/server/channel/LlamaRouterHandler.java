@@ -325,16 +325,16 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		}
 
 		logger.info("[Control路由] 本地模型未加载，开始搜索远程节点: model={}", modelName);
-		String targetUrl = this.resolveControlRemoteUrl(modelName);
-		if (targetUrl != null) {
-			this.forwardControlToRemote(ctx, request, content, targetUrl);
+		String[] remoteTarget = this.resolveControlRemoteUrl(modelName);
+		if (remoteTarget != null) {
+			this.forwardControlToRemote(ctx, request, content, remoteTarget[0], remoteTarget[1]);
 			return;
 		}
 
 		this.sendJsonResponse(ctx, ApiResponse.error("Model not found: " + modelName));
 	}
 
-	private String resolveControlRemoteUrl(String modelName) {
+	private String[] resolveControlRemoteUrl(String modelName) {
 		for (LlamaHubNode node : NodeManager.getInstance().listEnabledNodes()) {
 			NodeManager.HttpResult result = NodeManager.getInstance().callRemoteApi(node.getNodeId(), "GET", "v1/models", null);
 			if (!result.isSuccess()) continue;
@@ -358,9 +358,9 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 					}
 				}
 				if (found) {
-					logger.info("[Control路由] 远程节点匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
-					return node.getBaseUrl() + "/v1/chat/completions/control";
-				}
+								logger.info("[Control路由] 远程节点匹配成功: model={}, nodeId={}", modelName, node.getNodeId());
+								return new String[]{node.getBaseUrl() + "/v1/chat/completions/control", node.getApiKey()};
+							}
 			} catch (Exception ignore) {
 			}
 		}
@@ -392,9 +392,9 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 								continue;
 							}
 							connection.setRequestProperty(key, entry.getValue());
-			}
+									}
 
-			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
+									byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
 			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
 			try (OutputStream os = connection.getOutputStream()) {
 				os.write(outBytes);
@@ -436,7 +436,7 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 		}
 	}
 
-	private void forwardControlToRemote(ChannelHandlerContext ctx, FullHttpRequest request, String content, String targetUrl) {
+	private void forwardControlToRemote(ChannelHandlerContext ctx, FullHttpRequest request, String content, String targetUrl, String nodeApiKey) {
 		HttpURLConnection connection = null;
 		try {
 			connection = (HttpURLConnection) URI.create(targetUrl).toURL().openConnection();
@@ -467,9 +467,14 @@ public class LlamaRouterHandler extends SimpleChannelInboundHandler<FullHttpRequ
 								continue;
 							}
 							connection.setRequestProperty(key, entry.getValue());
-			}
+									}
 
-			byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
+									// 添加远程节点的 API Key 认证
+									if (nodeApiKey != null && !nodeApiKey.isBlank()) {
+										connection.setRequestProperty("Authorization", "Bearer " + nodeApiKey);
+									}
+
+									byte[] outBytes = content.getBytes(StandardCharsets.UTF_8);
 			connection.setRequestProperty("Content-Length", String.valueOf(outBytes.length));
 			try (OutputStream os = connection.getOutputStream()) {
 				os.write(outBytes);
