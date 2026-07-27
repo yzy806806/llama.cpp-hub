@@ -14,7 +14,7 @@ import com.google.gson.GsonBuilder;
 
 public class GitHubTagFetcherNative {
 
-	private static final String API_URL = "https://api.github.com/repos/IIIIIllllIIIIIlllll/llama.cpp-hub/releases/latest";
+	private static final String API_URL = "https://api.github.com/repos/yzy806806/llama.cpp-hub/releases/latest";
 	private static final String CACHE_DIR = "cache";
 	private static final String CACHE_FILE = CACHE_DIR + "/latest.json";
 	private static final String CURRENT_TAG = BuildInfo.getTag();
