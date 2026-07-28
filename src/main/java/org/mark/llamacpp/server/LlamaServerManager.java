@@ -427,6 +427,39 @@ public class LlamaServerManager {
                         m.setFavourite(fav);
                     }
                 }
+                // 回退检测：目录扫描未找到 mmproj 时，尝试从启动配置的 --mmproj 参数中获取
+                for (GGUFModel m : this.list) {
+                    if (m.getMmproj() != null) continue;
+                    try {
+                        String mmprojPath = this.extractMmprojPathFromLaunchConfig(m.getModelId());
+                        if (mmprojPath != null) {
+                            File mmprojFile = new File(mmprojPath);
+                            if (mmprojFile.exists() && mmprojFile.isFile()) {
+                                GGUFMetaData md = GGUFMetaData.readFile(mmprojFile);
+                                if (md != null) {
+                                    m.setMmproj(md);
+                                    m.addMetaData(md);
+                                    logger.info("[模型扫描] 从启动配置检测到 mmproj: {} -> {}", m.getModelId(), mmprojPath);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.warn("[模型扫描] 启动配置 mmproj 回退检测失败: modelId={}, error={}", m.getModelId(), e.getMessage());
+                    }
+                }
+                // 回退检测：GGUF 未内置 MTP 层时，尝试从启动配置的 --spec-type / --spec-draft-model 中获取
+                for (GGUFModel m : this.list) {
+                    GGUFMetaData primary = m.getPrimaryModel();
+                    if (primary != null && primary.getMtpInfo().hasMtp()) continue;
+                    try {
+                        if (this.extractSpecFromLaunchConfig(m.getModelId())) {
+                            m.setHasDraftModel(true);
+                            logger.info("[模型扫描] 从启动配置检测到草稿模型: {}", m.getModelId());
+                        }
+                    } catch (Exception e) {
+                        logger.warn("[模型扫描] 启动配置草稿模型回退检测失败: modelId={}, error={}", m.getModelId(), e.getMessage());
+                    }
+                }
                this.ensureCapabilitiesFilesExistForCurrentList();
                 // 重建自动加载缓存
                 if (!this.list.isEmpty()) {
@@ -1353,6 +1386,124 @@ public class LlamaServerManager {
 			logger.warn("[自动加载缓存] 提取 ctx-size 失败: modelId={}, error={}", modelId, e.getMessage());
 		}
 		return 0;
+	}
+
+	/**
+	 * 从启动配置中提取 --mmproj 参数指定的 mmproj 文件绝对路径。
+	 * 如果配置中包含 --no-mmproj，返回 null（尊重用户显式禁用）。
+	 * 仅支持绝对路径，相对路径忽略。
+	 *
+	 * @param modelId 模型 ID
+	 * @return mmproj 文件的绝对路径字符串，未找到或无效返回 null
+	 */
+	private String extractMmprojPathFromLaunchConfig(String modelId) {
+		try {
+			Map<String, Object> bundle = configManager.getModelLaunchConfigBundle(modelId);
+			if (bundle == null) return null;
+
+			String selectedConfigName = ParamTool.asString(bundle.get("selectedConfig"));
+			if (selectedConfigName.trim().isEmpty()) return null;
+
+			Map<String, Object> configs = ParamTool.asConfigMap(bundle.get("configs"));
+			if (configs == null) return null;
+
+			Map<String, Object> config = ParamTool.asConfigMap(configs.get(selectedConfigName));
+			if (config == null) return null;
+
+			String cmd = ParamTool.asString(config.getOrDefault("cmd", ""));
+			String extraParams = ParamTool.asString(config.getOrDefault("extraParams", ""));
+
+			List<String> args = ParamTool.splitCmdArgs(cmd + " " + extraParams);
+			for (int i = 0; i < args.size(); i++) {
+				if ("--no-mmproj".equals(args.get(i))) {
+					return null;
+				}
+				if ("--mmproj".equals(args.get(i)) && i + 1 < args.size()) {
+					String path = args.get(i + 1);
+					if (path != null && !path.isEmpty() && Paths.get(path).isAbsolute()) {
+						return path;
+					}
+					return null;
+				}
+			}
+		} catch (Exception e) {
+			logger.info("[模型扫描] 提取 mmproj 路径失败: modelId={}, error={}", modelId, e.getMessage());
+		}
+		return null;
+	}
+
+	/**
+	 * 从启动配置中检测是否关联了草稿模型（--spec-type 非 none 或 --spec-draft-model 指向有效文件）。
+	 *
+	 * @param modelId 模型 ID
+	 * @return 如果启动配置中指定了草稿模型返回 true，否则返回 false
+	 */
+	private boolean extractSpecFromLaunchConfig(String modelId) {
+		try {
+			Map<String, Object> bundle = configManager.getModelLaunchConfigBundle(modelId);
+			if (bundle == null) return false;
+
+			String selectedConfigName = ParamTool.asString(bundle.get("selectedConfig"));
+			if (selectedConfigName.trim().isEmpty()) return false;
+
+			Map<String, Object> configs = ParamTool.asConfigMap(bundle.get("configs"));
+			if (configs == null) return false;
+
+			Map<String, Object> config = ParamTool.asConfigMap(configs.get(selectedConfigName));
+			if (config == null) return false;
+
+			String cmd = ParamTool.asString(config.getOrDefault("cmd", ""));
+			String extraParams = ParamTool.asString(config.getOrDefault("extraParams", ""));
+
+			List<String> args = ParamTool.splitCmdArgs(cmd + " " + extraParams);
+			boolean hasSpecType = false;
+			for (int i = 0; i < args.size(); i++) {
+				String arg = args.get(i);
+				// --spec-type xxx
+				if ("--spec-type".equals(arg) && i + 1 < args.size()) {
+					String val = args.get(i + 1);
+					if (val != null && !"none".equals(val)) {
+						hasSpecType = true;
+					}
+					i++;
+					continue;
+				}
+				// --spec-type_xxx (LOGIC 类型前端参数，如 ngram-mod, ngram-map-k4v)
+				if (arg.startsWith("--spec-type_")) {
+					String v = arg.substring("--spec-type_".length());
+					if (!v.isEmpty()) {
+						hasSpecType = true;
+					}
+					continue;
+				}
+				// --spec-draft-model 指向有效文件
+				if ("--spec-draft-model".equals(arg) && i + 1 < args.size()) {
+					String path = args.get(i + 1);
+					if (path != null && !path.isEmpty() && Paths.get(path).isAbsolute()) {
+						File draftFile = new File(path);
+						if (draftFile.exists() && draftFile.isFile()) {
+							return true;
+						}
+					}
+					i++;
+				}
+			}
+			return hasSpecType;
+		} catch (Exception e) {
+			logger.warn("[模型扫描] 提取草稿模型配置失败: modelId={}, error={}", modelId, e.getMessage());
+		}
+		return false;
+	}
+
+	/**
+	 * 公开接口：检查指定模型的启动配置是否关联了草稿模型。
+	 * 供 ModelActionController 等外部组件查询克隆体的草稿模型状态。
+	 *
+	 * @param modelId 模型 ID（可以是克隆体 ID）
+	 * @return 如果启动配置中指定了草稿模型返回 true
+	 */
+	public boolean hasDraftModelFromConfig(String modelId) {
+		return this.extractSpecFromLaunchConfig(modelId);
 	}
 
 	/**
@@ -2309,6 +2460,11 @@ if (loadSuccess.get()) {
 				String mmprojFile = Paths.get(targetModel.getPath(), targetModel.getMmproj().getFileName()).toString();
 				sb.append(ParamTool.quoteIfNeeded(mmprojFile));
 			}
+		} else {
+			// 视觉禁用时，确保 --no-mmproj 存在（覆盖用户在 cmd/extraParams 中手动指定的 --mmproj）
+			if (!cmdHasFlag(allArgs, "--no-mmproj")) {
+				sb.append(" --no-mmproj");
+			}
 		}
 
 		// 过滤无效设备值（'All' 是前端"全选"的标记值，不是合法设备名；旧配置中可能残留）
@@ -2339,12 +2495,18 @@ if (loadSuccess.get()) {
 		if (cmd != null && !cmd.trim().isEmpty()) {
 			String processed = splitSpecType(cmd.trim());
 			processed = ParamTool.stripFlagWithValue(processed, "--alias");
+			if (!enableVision) {
+				processed = ParamTool.stripFlagWithValue(processed, "--mmproj");
+			}
 			sb.append(' ');
 			sb.append(processed);
 		}
 		if (extraParams != null && !extraParams.trim().isEmpty()) {
 			String processed = splitSpecType(extraParams.trim());
 			processed = ParamTool.stripFlagWithValue(processed, "--alias");
+			if (!enableVision) {
+				processed = ParamTool.stripFlagWithValue(processed, "--mmproj");
+			}
 			sb.append(' ');
 			sb.append(processed);
 		}
