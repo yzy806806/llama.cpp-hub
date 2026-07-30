@@ -1,180 +1,137 @@
-# llama.cpp-hub
+# llama.cpp-hub (yzy806806 fork)
 
-[🇬🇧 English](./README-EN.md) | [🇨🇳 中文](./README.md)
-
-> **请不要将重要内容存放在Easy Chat。**
-> **每个模型放在单独的文件夹中，担心mmproj文件的话，也放到单独的文件夹，启动参数中选择它即可。**
-
-
-给 llama.cpp 套个 Web 壳 — 用图形化的Web页面来操作模型和llama.cpp。内置了很多花里胡哨的功能。
+> 给 llama.cpp 套个 Web 壳 — 用图形化的 Web 页面来操作模型和 llama.cpp。
+>
+> 原项目：[IIIIIllllIIIIIlllll/llama.cpp-hub](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub)
+>
+> 💡 **PWA 支持**：本应用是渐进式 Web 应用（PWA），可直接在浏览器中安装到桌面/任务栏，获得类似原生应用的体验。
 
 ---
 
-![image](./screenshot/laika.jpg)
+## 🔒 安全增强（本 Fork 独有）
+
+相比上游，本 Fork 进行了全面的安全加固，使应用在启用 API Key 后可以安全地暴露在公网：
+
+### 1. 全路由统一鉴权
+
+新增 `ApiKeyValidator`（`src/main/java/org/mark/llamacpp/server/security/ApiKeyValidator.java`）集中管理 API Key 验证：
+
+| 特性 | 说明 |
+|------|------|
+| **常量时间比较** | 使用 `MessageDigest.isEqual`，防止计时攻击 |
+| **三种验证方式** | `Authorization: Bearer <key>` / `x-api-key: <key>` / Cookie `lh-api-key` |
+| **IP 暴力破解防护** | 连续 5 次失败后封禁 15 分钟（上限 10000 条记录，防内存 DoS） |
+| **客户端 IP 直取** | 从 TCP 连接提取真实 IP，不信任 `X-Forwarded-For` / `X-Real-IP` 等可伪造代理头 |
+
+### 2. Pipeline 全覆盖
+
+所有请求路径均走统一鉴权，不留死角：
+
+- **流式 API**（`/v1/chat/completions`）— 之前完全绕过验证
+- **Easy Chat** — 之前在验证前就写临时文件
+- **文件上传/下载** — 之前未验证就接受上传
+- **WebSocket** — 新增 `WebSocketAuthHandler`，握手阶段验证
+- **WebUI + `/api/*`** — 浏览器请求返回登录页，API 请求返回 JSON 401
+
+### 3. 子进程端口隔离
+
+llama.cpp 子进程默认绑定 `--host 127.0.0.1`，仅 Hub 通过 localhost 转发访问，模型端口（8081、8082…）不会直接暴露在公网。
+
+### 4. 节点间通信认证
+
+主从节点通信在启用 API Key 后也走认证：
+- `RemoteWebSocketClient`：连接时带 `Authorization: Bearer <node.apiKey>`
+- HTTP 远程转发时带节点 apiKey
+- 未配置 apiKey 的节点行为不变（完全兼容）
+
+### 5. 敏感信息保护
+
+- `/api/sys/setting` 不再返回明文 `apiKey` / `keystorePassword`
+- 前端显示 `******` 而非明文密钥
+- 新增 `/api/auth/verify` 端点（只返回 200/401）
+
+### 6. 网络加固
+
+| 项目 | 措施 |
+|------|------|
+| CORS | `Allow-Headers` 从 `*` 收紧为显式列表 |
+| 请求头过滤 | 转发时过滤 `Authorization` / `Cookie` / `X-Forwarded-*` |
+| 安全响应头 | `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy` |
+| Cookie | `SameSite=Strict`，HTTPS 启用时自动加 `Secure` |
+| 路径穿越 | 下载和目录列举限制白名单 |
+| Service Worker | 只缓存静态资源 |
 
 ---
 
-> 💡 **PWA 支持**：本应用是渐进式 Web 应用（PWA），可直接在浏览器中安装到桌面/任务栏，获得类似原生应用的体验。不会考虑单独开发桌面应用版本。
+## ⚙️ 配置安全特性
 
----
-
-## 功能
-
-### 模型操作
-
-- 加载 / 卸载 GGUF 模型
-- 每个模型可保存多套启动配置和采样信息，随时切换
-- 自动识别同目录下的mmproj文件，允许用户自行选择草稿模型
-- 可以配置多种不同版本的llama.cpp，选择指定版本加载模型
-- 设置聊天模板，自定义kwargs
-- 嵌入模型和重排序模型需在加载页面手动开启对应功能
-
-### 便宜聊天
-
-- 一个非常简陋的聊天前端，可以拿来便捷聊天
-- 支持MCP，但是应该没人会在这里用它吧，应该吧应该吧应该吧应该吧应该吧应该吧
-- 不过可以显示llama.cpp的性能指标
-- 还可以设置背景图片、助手头像
-- 噢，还能查看硬件状态
-- 可以输入音频、视频，真是花里胡哨
-
-### 多协议 API
-
-一个后端同时暴露四种兼容 API（OpenAI、Anthropic、Ollama、LM Studio），已接入对应 SDK 的工具直接换地址即可使用。[协议端口与兼容说明](./NOTES.md#多协议-api)
-
-**⚠️正在考虑移除Ollama和LM Studio的兼容API，我觉得没什么用哎。**
-
-### Web 管理面板
-
-桌面端主力维护，功能完整。移动端 ⚠️ 长期缺维护，存在 UI 问题。
-
-- 模型列表 + 实时状态
-- 参数调节（采样预设、聊天模板、Slots 状态）
-- WebSocket 实时日志
-- 用量统计（Token 消耗、推理速度）
-- 简易性能基准测试，简单粗暴地塞一堆上下文进去看它什么时候能搞定
-- llama-bench性能基准测试，这东西你得会用熬
-- 模型克隆，让同一个模型（GGUF文件完全相同）使用不同的参数启动两个实例，可能有一点用处
-- 模型搜索，因为国内网络环境的问题，这玩意实际不怎么好用，但是网络通畅的话可以用用
-- 系统信息，查看你的硬件资源，没啥可说的
-
-### 远程节点（服务聚合）
-
-将多台服务器上部署的 llama.cpp-hub 实例聚合到一起，从同一个入口统一管理。[详细说明](./NOTES.md#远程节点)
-
-> **注意：** 请避免在多个节点上使用相同的模型名称/ID。当外部客户端通过主节点的 `/v1/*` API 调用时（如 `/v1/chat/completions`），如果多个节点存在同名模型，系统无法确定应该路由到哪个节点，会导致调用错误。建议在不同节点上使用不同的模型名称，或者在请求体中显式指定 `nodeId`。
-
----
-
-### 内置 MCP 🧪
-
-用于测试模型能否正确执行 tool call。MCP 服务端监听端口 **8075**（需在设置中启用）。
-
-**这些工具用处不大，意义不明，一般来说直接无视。偶尔也能用来接入Agent用来查看硬件资源信息——花里胡哨。**
-
-#### MCP 客户端配置示例
+配置文件位于 `config/application.json`（首次运行后自动生成）：
 
 ```json
 {
-  "mcpServers": {
-    "llama_hub_info": {
-      "url": "http://localhost:8075/mcp/llama_hub_info",
-      "transportType": "streamable-http"
-    }
+  "security": {
+    "apiKeyEnabled": true,
+    "apiKey": "your-strong-random-key-here"
   }
 }
 ```
 
+| 配置项 | 类型 | 说明 |
+|--------|------|------|
+| `security.apiKeyEnabled` | Boolean | 设为 `true` 启用 API Key 验证 |
+| `security.apiKey` | String | 你的密钥（建议 32 位以上随机字符串） |
+
+**启用后**:
+- 浏览器首次访问 WebUI 显示登录页，输入 Key 后存 Cookie（7天有效）
+- API 客户端使用 `Authorization: Bearer <key>` 或 `x-api-key: <key>`
+- 远程节点在面板中添加时填入对应节点的 apiKey
+
+> **也可以直接在 Web 界面配置**：系统设置 → 安全 tab，打开开关并输入密钥后保存即生效。
+
 ---
 
-### 下载管理器 ⚠️
+## 功能概览
 
-- 支持 HTTP 断点续传，后端实现较基础。大批量下载建议用 aria2、IDM 等专用工具。
-- 这玩意我主要要来局域网传模型，偶尔才会拿去下载在线的模型。
-- 不止能下载GGUF，啥都行，所以能在特定场合下担任‘文件传输助手’。
+### 模型操作
+- 加载 / 卸载 GGUF 模型
+- 每个模型可保存多套启动配置和采样信息，随时切换
+- 自动识别同目录下的 mmproj 文件，可手动指定草稿模型
+- 可配置多种不同版本的 llama.cpp，选择指定版本加载模型
+- 设置聊天模板，自定义 kwargs
 
----
+### 多协议 API
+一个后端同时暴露 OpenAI / Anthropic 兼容 API，已接入对应 SDK 的工具直接换地址即可使用。
+
+### Web 管理面板
+- 模型列表 + 实时状态 / 参数调节 / WebSocket 实时日志
+- 用量统计（Token 消耗、推理速度）
+- 简易性能基准测试 / llama-bench
+- 模型克隆、搜索、系统信息
+
+### 远程节点（服务聚合）
+将多台服务器上部署的 llama.cpp-hub 实例聚合到一起，从一个入口统一管理。
+
+### 内置 MCP 🧪
+用于测试模型 tool call，监听端口 8075（需在设置中启用）。
+
+### 下载管理器
+支持 HTTP 断点续传，适合局域网传模型。
 
 ### 在线更新
-
-自动检查 GitHub Release → 下载更新包 → 解压替换。由于使用GitHub的API，因此存在无法访问和403的风险。
-如果自动更新失败，那就自行下载程序包覆盖就行，**记得重启**。
-
----
-
-## 适用人群
-
-- 远程服务器操作太麻烦了，想要省事
-- 有多台机器跑 llama.cpp，想通过一个入口统一管理
-- 喜欢自己编译 llama.cpp，又嫌不同版本堆积在一起很混乱的
-- 记不住 llama.cpp 那成堆的参数，但是又想用
+自动检查 GitHub Release → 下载更新包 → 解压替换。
 
 ---
 
 ## 快速开始
 
-1. 下载包含 llama.cpp 的 Release 程序包，解压
-2. 每个 GGUF 模型需放置在一个独立文件夹中，例如：`models/Qwen3.5-27B-Q8_0/Qwen3.5-27B.gguf`，文件夹名称可自定义
-3. 运行启动脚本：Windows 执行 `.bat`，Linux 执行 `.sh`
-4. 浏览器打开 `http://localhost:8080`
-5. 在页面选择模型 → 点击加载 → 开始使用
-6. OK，如果没有启动成功，可能是端口被占用了，默认需要使用8080端口，请确保该端口可用再运行
+1. 下载 [Release](https://github.com/yzy806806/llama.cpp-hub/releases) 程序包，解压
+2. 自行下载 llama.cpp 放入 `llamacpp/` 目录
+3. 每个 GGUF 模型放在独立文件夹，如：`models/Qwen3.5-27B-Q8_0/Qwen3.5-27B.gguf`
+4. 运行 `run.bat`（Windows）
+5. 浏览器打开 `http://localhost:8080`
+6. 选择模型 → 点击加载 → 开始使用
 
-> **重要**：本项目通过 8080（默认）端口直接访问全部模型，使用其它客户端时，填写该端口即可！无需去检查 llama.cpp 进程的端口。
->
-> **提示**：可以为模型设置「允许自动加载」，开启后模型会出现在 `/v1/models` 列表中，也可以在 Easy Chat 中快速加载和停止。详情查看额外说明中的[「自动加载模型」](./NOTES.md#自动加载模型)部分。
-
----
-
-## 注意事项
-
-> **重要**：本应用需要读写文件的权限，无读写权限会导致无法进入网页、无法正常使用功能。如 Windows 11 的 C 盘根目录会导致无法读取文件。
-
-> **提醒**：每个模型需单独放在一个文件夹内，文件夹存放该模型的 GGUF 文件（分片、mmproj 等），不能将不同模型的 GGUF 文件混放。模型只有加载后才会在 `/v1/models` 中显示。
-
-> **提醒**：界面支持英中双语，会根据浏览器语言设置自动切换，也可在 URL 中通过 `?lang=en` 参数手动指定。首页左下角也有个开关方便切换。
-
-> **注意**：/v1/models API端点只会返回 **运行中的模型** 和 **允许自动加载的模型** ，我个人的理解是：如果你的模型没有加载就显示在模型列表里，客户端还以为这些模型都能用呢，结果发现全是用不了的，那太逗了。而可自动加载的模型则会在调用时自行尝试加载，问题不大。
-
-
-## 额外说明
-
-- **多模态** — [自动检索 mmproj，也可手动指定](./NOTES.md#多模态)
-- **MTP** — [两种使用方式说明](./NOTES.md#mtp)
-- **系统信息工具** — [gpu-info 工具说明](./NOTES.md#系统信息工具)
-- **自动加载模型** — [自动加载机制详解](./NOTES.md#自动加载模型)
-- **模型路径** — [模型目录规范](./NOTES.md#模型路径)
-- **用量统计** — [仅统计成功响应的用量](./NOTES.md#用量统计)
-- **磁盘与内存占用** — [JVM 与 llama.cpp 资源消耗说明](./NOTES.md#磁盘与内存占用)
-
----
-
-## 端口布局
-
-| 端口 | 用途 |
-|------|------|
-| 8080 | WebUI + OpenAI/Anthropic API + WebSocket |
-| 8081+ | 每个已加载模型的推理进程（自动分配） |
-| 11434 | Ollama 兼容 API（已经移除） |
-| 1234 | LM Studio 兼容 API（已经移除） |
-| 8075 | MCP 服务器（可选） |
-
-> ## ⚠️ 安全声明
-> 
-> **本应用是面向局域网的个人工具，不具备互联网级别的安全防护能力。**
-> 
-> 应用默认监听 `0.0.0.0`，如果你在路由器上做了端口转发或使用内网穿透将其暴露到公网，请注意：
-> 
-> - 本应用**没有**完整的身份认证、授权、防攻击机制
-> - 即使开启了 API 密钥验证（`security.apiKeyEnabled`），也仅是最基本的访问控制，不足以抵御恶意攻击
-> - 暴露到公网可能导致模型服务被盗用/滥用、服务器资源被耗尽、聊天记录等数据泄露
-> 
-> **强烈建议：**
-> - 仅在受信任的局域网内使用
-> - 如需公网访问，务必使用反向代理（如 Nginx）自行配置 HTTPS、访问控制、速率限制等
-> - 不要将 8080 或其他服务端口直接暴露到公网
-> 
-> **任何因端口映射/公网暴露导致的损失，后果自负。**
+> **端口**：默认 8080，确保该端口可用。
 
 ---
 
@@ -183,49 +140,45 @@
 - 后端：Java 21 + Netty 4.1
 - 前端：Vanilla JS（无框架、无打包器）
 - 模型：llama.cpp 子进程（每个模型独立进程）
+- 安全：常量时间比较 + IP 限速 + 子进程端口隔离
 
 ---
 
-## AI 工具的使用声明
+## 端口布局
 
-作为一个非互联网行业的个人开发者，工作之余很难有精力坚持纯手工开发。AI 很好地解决了这个问题——我只需要用尽可能简单的技术方案，配合大量的人工 review 就行。
-
-这个项目的技术栈十分简单，用 AI 开发其实问题不大。尤其是我不考虑更深层次的功能，作为一个启动 llama.cpp 的壳就足够了。
-
-开发中大量使用了 **Qwen3.6-27B-FP8** 来制定计划和执行代码编写任务，其次是 **DeepSeek V4 Flash**。早期也用过 GPT 5.2 到 GPT 5.4，但做这种简单的项目太浪费了，就不再使用。
-
-Qwen3.6-27B-FP8 是我的救星，帮我做了大量大量大量大量的工作！后来换Q8了，vllm太麻烦。
-
-无敌的 Qwen3.6-27B 和它没用的主人。
-
-Easy Chat 过于繁琐，我只能引入：Kimi K2.7 + GLM 5.2，也用过几次 ChatGPT 5.5。
+| 端口 | 用途 |
+|------|------|
+| 8080 | WebUI + OpenAI/Anthropic API + WebSocket |
+| 8081+ | 每个已加载模型的推理进程（自动分配，绑定 127.0.0.1） |
+| 8075 | MCP 服务器（可选） |
 
 ---
 
-## 编译说明
+## ⚠️ 安全声明
 
-### 手动编译
-- 注意修改脚本中的 `JAVA_HOME` 路径为实际路径
-- Windows：运行 `javac-win.bat`
-- Linux：运行 `javac-linux.sh`
+**本应用是面向局域网的个人工具，不具备互联网级别的安全防护能力。**
 
-### 注意
+虽然本 Fork 进行了安全加固，但如果你将服务暴露到公网，请注意：
 
-- 请确保 `JAVA_HOME` 指向 JDK 21 或更高版本
-- Windows 使用 CRLF（`\r\n`）作为换行符，Linux 使用 LF（`\n`），修改脚本时请留意
-- 如果编译脚本存在问题，也可作为 Maven 项目导入 IDE 自行操作，或直接下载 Release 程序包
+- 务必**启用 API Key**（`security.apiKeyEnabled: true`）
+- 使用强密钥（32 位以上随机字符串）
+- 推荐使用反向代理（如 Nginx / Cloudflare Tunnel）配置 HTTPS + 访问控制 + 速率限制
+- 不要将 8080 或其他服务端口直接暴露到公网
+
+**任何因端口映射/公网暴露导致的损失，后果自负。**
 
 ---
 
-## 截图预览
-![image](./screenshot/1.png)
-![image](./screenshot/2.png)
-![image](./screenshot/3.png)
-![image](./screenshot/4.png)
-![image](./screenshot/5.png)
-![image](./screenshot/6.png)
-![image](./screenshot/7.png)
-![image](./screenshot/8.png)
-![image](./screenshot/9.png)
-![image](./screenshot/10.png)
-![image](./screenshot/11.png)
+## 与原项目的差异
+
+本 Fork 在 [原项目](https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub) 基础上：
+
+- ✅ 新增全路由 API Key 鉴权 + 暴力破解防护
+- ✅ 子进程端口绑定 127.0.0.1
+- ✅ WebSocket 握手认证
+- ✅ 节点间通信认证
+- ✅ 敏感信息脱敏
+- ✅ 网络加固（CORS/SameSite/安全响应头/路径穿越防护）
+- ❌ 移除了 Ollama / LM Studio 兼容 API（上游已删除）
+- ❌ 移除了 ACME Let's Encrypt 证书功能（上游已删除）
+- 🔗 自动更新指向本 Fork
