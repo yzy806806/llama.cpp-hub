@@ -1327,7 +1327,7 @@ if (downloadDirectory != null && !downloadDirectory.isEmpty()) {
 
 	/**
 	 *  简单校验 URL 是否为 GitHub Release 资源下载链接。<br>
-	 * 	https://github.com/IIIIIllllIIIIIlllll/llama.cpp-hub/releases/download/
+	 * 	https://github.com/yzy806806/llama.cpp-hub/releases/download/
 	 */
 	private boolean isGitHubReleaseUrl(String url) {
 		return url.contains("://github.com");
