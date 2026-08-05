@@ -57,6 +57,7 @@
                     <i class="fas fa-search"></i>
                     <input type="search" id="modelSearch" placeholder="搜索模型…">
                 </div>
+                <button class="icon-btn" id="modelViewToggle" title="切换为列表布局"><i class="fas fa-list"></i></button>
                 <select id="nodeFilter" class="select-inline" style="display:none"></select>
             </div>
             <div class="chip-row" id="modelChips">
@@ -330,7 +331,8 @@
                 <button data-anchor="set-llamacpp">Llama.cpp 路径</button>
                 <button data-anchor="set-modelpath">模型路径</button>
                 <button data-anchor="set-nodes">节点</button>
-                <button data-anchor="set-update">更新</button>
+                <button data-anchor="set-update">应用更新</button>
+                <button data-anchor="set-llamacpp-dl">llama.cpp 下载</button>
                 <button data-anchor="set-about">关于</button>
             </nav>
             <div class="set-main">
@@ -439,7 +441,7 @@
                 <button class="btn" id="nodeAdd"><i class="fas fa-plus"></i> 添加远程节点</button>
             </div>
             <div class="card span2" id="set-update">
-                <h3><i class="fas fa-circle-up"></i> 更新</h3>
+                <h3><i class="fas fa-circle-up"></i> 应用更新</h3>
                 <div class="kv"><span class="k">当前版本</span><span class="v" id="updCurrent">…</span></div>
                 <div class="row-gap" style="flex-wrap:wrap;margin:8px 0">
                     <button class="btn" id="updCheck"><i class="fas fa-rotate"></i> 检查更新</button>
@@ -471,14 +473,13 @@
                     <button class="btn primary" id="updDownload" style="display:none"></button>
                     <button class="btn primary" id="updApply" style="display:none"></button>
                 </div>
-                <div class="si-sec" style="margin-top:14px">
-                    <div class="kv" style="border:none;padding-top:0">
-                        <span class="k" style="font-weight:600;color:var(--text)">llama.cpp 下载</span>
-                        <span class="v"><button class="btn mini" id="lcRelLoad"><i class="fas fa-rotate"></i> 获取最新版本</button></span>
-                    </div>
-                    <div class="muted" id="lcRelInfo" style="font-size:12.5px;margin-bottom:8px"></div>
-                    <div id="lcAssets" class="set-list" style="margin-bottom:0"></div>
-                </div>
+            </div>
+            <div class="card span2" id="set-llamacpp-dl">
+                <h3><i class="fas fa-file-zipper"></i> llama.cpp 下载</h3>
+                <div class="kv"><span class="k">Release 版本</span>
+                    <span class="v"><button class="btn mini" id="lcRelLoad"><i class="fas fa-rotate"></i> 获取最新版本</button></span></div>
+                <div class="muted" id="lcRelInfo" style="font-size:12.5px;margin-bottom:8px"></div>
+                <div id="lcAssets" class="set-list" style="margin-bottom:0"></div>
             </div>
             <div class="card" id="set-about">
                 <h3><i class="fas fa-circle-info"></i> 关于</h3>
@@ -547,10 +548,6 @@
                     <label>主 GPU</label>
                     <select id="cfgMainGpu"><option value="-1">默认</option></select>
                 </div>
-                <div class="field grow">
-                    <label>&nbsp;</label>
-                    <label class="check-line"><input type="checkbox" id="cfgVision"> 启用视觉 (mmproj)</label>
-                </div>
             </div>
         </div>
         <!-- 右栏：动态参数 -->
@@ -564,7 +561,7 @@
                 <label>命令行</label>
                 <textarea id="cfgCmd" spellcheck="false" rows="4"></textarea>
             </div>
-            <div class="field">
+            <div class="field" id="extraField">
                 <label>额外参数（无法识别的参数会归入此处）</label>
                 <input type="text" id="cfgExtra" spellcheck="false">
             </div>
@@ -605,6 +602,7 @@
     </div>
     <div class="sheet-foot">
         <button class="btn" id="cfgVramBtn"><i class="fas fa-memory"></i> 估算显存</button>
+        <span id="cfgVramResult" class="vram-result"></span>
         <button class="btn" id="cfgSaveBtn"><i class="fas fa-floppy-disk"></i> 保存配置</button>
         <button class="btn primary grow" id="cfgStartBtn"><i class="fas fa-play"></i> 启动</button>
     </div>
