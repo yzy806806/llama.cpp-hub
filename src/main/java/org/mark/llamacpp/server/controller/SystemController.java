@@ -806,6 +806,8 @@ public class SystemController implements BaseController {
 			
 			Map<String, Object> server = new HashMap<>();
 			server.put("webPort", LlamaServer.getWebPort());
+			server.put("httpOnlyEnabled", LlamaServer.isHttpOnlyEnabled());
+			server.put("httpOnlyPort", LlamaServer.getHttpOnlyPort());
 			data.put("server", server);
 			
 			Map<String, Object> download = new HashMap<>();
@@ -869,6 +871,8 @@ Map<String, Object> https = new HashMap<>();
 			Boolean logRequestBody = firstBoolean(obj, "LlamaServer.logRequestBody", "logRequestBody", "log_request_body");
 			
 Integer webPort = firstPort(obj, "webPort", "web_port");
+		Integer httpOnlyPort = firstPort(obj, "httpOnlyPort", "http_only_port");
+		Boolean httpOnlyEnabled = firstBoolean(obj, "httpOnlyEnabled", "http_only_enabled");
 		Boolean apiKeyEnabled = firstBoolean(obj, "apiKeyEnabled", "api_key_enabled");
 		String apiKey = JsonUtil.getJsonString(obj, "apiKey", null);
 		Boolean httpsEnabled = firstBoolean(obj, "httpsEnabled", "https_enabled");
@@ -878,7 +882,8 @@ Integer webPort = firstPort(obj, "webPort", "web_port");
 		String nodeRole = JsonUtil.getJsonString(obj, "nodeRole", null);
 
 		if (logRequestUrl == null && logRequestHeader == null && logRequestBody == null
-			&& webPort == null && apiKeyEnabled == null && apiKey == null
+			&& webPort == null && httpOnlyPort == null && httpOnlyEnabled == null
+			&& apiKeyEnabled == null && apiKey == null
 			&& httpsEnabled == null && httpsCertPath == null && httpsPassword == null
 			&& downloadDirectory == null
 			&& nodeRole == null) {
@@ -897,7 +902,15 @@ Integer webPort = firstPort(obj, "webPort", "web_port");
 				}
 				LlamaServer.updateServerPorts(webPort);
 			}
-			
+
+			if (httpOnlyEnabled != null || httpOnlyPort != null) {
+				if (httpOnlyPort != null && !isValidPort(httpOnlyPort.intValue())) {
+					LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PARAM_WEB_PORT_INVALID));
+					return;
+				}
+				LlamaServer.updateHttpOnlyConfig(httpOnlyEnabled, httpOnlyPort);
+			}
+
 			if (apiKeyEnabled != null || apiKey != null) {
 				LlamaServer.updateApiKeyConfig(apiKeyEnabled != null ? apiKeyEnabled : LlamaServer.isApiKeyValidationEnabled(), apiKey);
 			}
