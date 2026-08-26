@@ -2541,8 +2541,8 @@ if (loadSuccess.get()) {
 		sb.append(" --alias ").append(ParamTool.quoteIfNeeded(alias));
 
 		sb.append(" --timeout 36000");
-		// 允许任意IP地址访问
-		sb.append(" --host 0.0.0.0");
+		// 子进程绑定 127.0.0.1，仅允许 hub 通过 localhost 转发访问，防止绕过 API Key 鉴权
+		sb.append(" --host 127.0.0.1");
 		// 输出详细日志 一些分支不兼容这玩意，先注释掉吧，后续改为可选参数。
 		//sb.append(" -lv 4");
 
@@ -2625,7 +2625,7 @@ if (loadSuccess.get()) {
 		}
 
 		if (!hasFlagToken(userArgs, "--host")) {
-			sb.append(" --host 0.0.0.0");
+			sb.append(" --host 127.0.0.1");
 		}
 		if (!hasFlagToken(userArgs, "--timeout")) {
 			sb.append(" --timeout 36000");
