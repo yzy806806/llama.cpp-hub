@@ -26,6 +26,61 @@ jobs:
           java-version: '26'
           distribution: 'temurin'
 
+      - name: 安全回归守卫
+        run: |
+          set -e
+          FAIL=0
+
+          # 1. llama-server 子进程必须绑定 127.0.0.1，防止绕过 hub 鉴权（上游合并曾两次覆盖回 0.0.0.0）
+          if grep -q '" --host 0.0.0.0"' src/main/java/org/mark/llamacpp/server/LlamaServerManager.java; then
+            echo "::error::安全回归：llama-server 子进程被改为监听 0.0.0.0（LlamaServerManager），外部可直连模型端口绕过 API Key。请恢复 --host 127.0.0.1"
+            FAIL=1
+          fi
+          HOST_COUNT=$(grep -c '" --host 127.0.0.1"' src/main/java/org/mark/llamacpp/server/LlamaServerManager.java || true)
+          if [ "$HOST_COUNT" -lt 2 ]; then
+            echo "::error::安全回归：应存在两处 --host 127.0.0.1（表单模式 + 命令行模式），当前只有 $HOST_COUNT 处"
+            FAIL=1
+          fi
+
+          # 2. WebSocket 握手认证必须在 pipeline 中
+          if ! grep -q "WebSocketAuthHandler" src/main/java/org/mark/llamacpp/server/channel/HttpHttpsUnificationHandler.java; then
+            echo "::error::安全回归：WebSocketAuthHandler 不在 HTTP pipeline 中，WebSocket 握手未鉴权"
+            FAIL=1
+          fi
+
+          # 3. ApiKeyValidator 必须存在且被 BasicRouterHandler 引用（全路由鉴权入口）
+          if [ ! -f src/main/java/org/mark/llamacpp/server/security/ApiKeyValidator.java ]; then
+            echo "::error::安全回归：ApiKeyValidator 被删除"
+            FAIL=1
+          fi
+          if ! grep -q "ApiKeyValidator.validate" src/main/java/org/mark/llamacpp/server/channel/BasicRouterHandler.java; then
+            echo "::error::安全回归：BasicRouterHandler 未调用 ApiKeyValidator.validate"
+            FAIL=1
+          fi
+
+          # 4. 自动更新必须指向本 fork
+          if grep -rq "IIIIIllllIIIIIlllll" src/main/java/org/mark/llamacpp/update/ src/main/resources/web/js/settings.js; then
+            echo "::error::fork 回归：自动更新地址指回了上游仓库 IIIIIllllIIIIIlllll"
+            FAIL=1
+          fi
+
+          # 5. 前端页面必须引入 api-auth.js（自动注入 Bearer）
+          for page in index.html index-new.html chat/index.html; do
+            if [ -f "src/main/resources/web/$page" ] && ! grep -q "api-auth.js" "src/main/resources/web/$page"; then
+              echo "::error::fork 回归：src/main/resources/web/$page 未引入 api-auth.js"
+              FAIL=1
+            fi
+          done
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "==============================================="
+            echo "❌ 安全回归检查未通过，详见上方 error 标注"
+            echo "参考 FORK.md 了解本 fork 的安全差异与守卫点"
+            echo "==============================================="
+            exit 1
+          fi
+          echo "✅ 安全回归检查通过"
+
       - name: 验证 Java 版本
         run: |
           echo "Java 版本:"
