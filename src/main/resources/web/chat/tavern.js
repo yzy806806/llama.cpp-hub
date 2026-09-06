@@ -211,6 +211,9 @@
     if (stateAccessor && typeof stateAccessor.getCurrentAssistant === 'function') {
       return stateAccessor.getCurrentAssistant();
     }
+    // accessor 未初始化（页面早期阶段）时安全返回 null，
+    // 不能抛异常——caller（如 syncUiFromAssistant）会在页面初始化流程中被提前调用
+    if (!stateAccessor) return null;
     const state = getState();
     if (!state || !Array.isArray(state.assistants)) return null;
     return state.assistants.find(a => a.id === state.currentAssistantId) || state.assistants[0] || null;
@@ -220,6 +223,7 @@
     if (stateAccessor && typeof stateAccessor.getCurrentConversation === 'function') {
       return stateAccessor.getCurrentConversation();
     }
+    if (!stateAccessor) return null;
     const state = getState();
     if (!state || !Array.isArray(state.conversations)) return null;
     return state.conversations.find(c => c.id === state.currentConversationId) || null;
