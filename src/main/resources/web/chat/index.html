@@ -418,6 +418,46 @@
                   </span>
                 </label>
               </div>
+              <!-- 作者注记（Author's Note） -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.author_note_label">作者注记（Author's Note）</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.author_note_desc">每轮对话都会提醒 AI 的关键指令，适合"角色不知道但玩家知道的秘密"或持续约束</p>
+                <textarea id="tavernAuthorNoteInput" class="drawer-textarea" rows="2" placeholder="例如：不要替玩家做决定，只描述角色反应"></textarea>
+              </div>
+              <!-- 全局世界书（不分角色） -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.global_worldbook_label">全局世界书（所有角色生效）</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.global_worldbook_desc">全局世界书对全部角色生效，角色世界书仅对当前角色生效，两者叠加</p>
+                <div class="tavern-card-row">
+                  <input id="tavernGlobalWorldBookInput" class="hidden" type="file" accept=".json,application/json">
+                  <button id="tavernGlobalWorldBookImportBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.tavern.global_worldbook_import">导入全局世界书</button>
+                  <button id="tavernGlobalWorldBookClearBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.tavern.global_worldbook_clear">移除全局世界书</button>
+                </div>
+                <p id="tavernGlobalWorldBookStatus" class="settings-field-desc"></p>
+              </div>
+              <!-- 开场白选择（alternate greetings） -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.greeting_label">开场白</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.greeting_desc">新聊天时角色说的第一句话；若角色卡带多个开场白可切换</p>
+                <select id="tavernGreetingSelect" class="drawer-select">
+                  <option value="-1" data-i18n="page.chat.main.settings.tavern.greeting_default">默认开场白（first_mes）</option>
+                </select>
+              </div>
+              <!-- Prompt 预览（Debugger） -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.prompt_preview_label">Prompt 预览</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.prompt_preview_desc">查看发送给模型的实际提示词分段与 token 占用，排查角色卡/世界书是否生效</p>
+                <button id="tavernPromptPreviewBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.tavern.prompt_preview_btn">查看 Prompt 分段</button>
+                <div id="tavernPromptPreviewPanel" class="hidden" style="margin-top:8px;max-height:300px;overflow:auto;border:1px solid var(--border-color,#444);border-radius:6px;padding:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;"></div>
+              </div>
               <div class="settings-field">
                 <div class="settings-field-header">
                   <label data-i18n="page.chat.main.settings.general.stream_label">流式输出</label>
@@ -8754,6 +8794,17 @@
       if (assistant?.name?.trim()) {
         headers['X-Assistant-Name'] = encodeURIComponent(assistant.name.trim());
       }
+      // 酒馆开场白选择：新会话时用所选 alternate greeting（-1 = first_mes 默认）
+      try {
+        if (window.Tavern && typeof window.Tavern.getSelectedGreetingIndex === 'function') {
+          const greetingIdx = window.Tavern.getSelectedGreetingIndex();
+          if (typeof greetingIdx === 'number' && greetingIdx >= 0) {
+            headers['X-Tavern-Greeting'] = String(greetingIdx);
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
       if (options.ephemeralMode) {
         headers['X-Ephemeral-Mode'] = encodeURIComponent(String(options.ephemeralMode));
       }
@@ -11470,6 +11521,13 @@ function confirmAudioRecording() {
             renderMessages();
           },
           persist: () => persistState({ immediate: true }),
+          onGlobalWorldBookChanged: (text) => {
+            try {
+              persistState({ immediate: true });
+            } catch (e) {
+              // ignore
+            }
+          },
           toast: (type, message) => {
             try {
               showToast(type, message);

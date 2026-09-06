@@ -27,6 +27,8 @@ public class WorldBookEntry {
     private int order;
     private int probability = 100;
     private boolean caseSensitive;
+    /** 整词匹配（酒馆 match_whole_words）：单词 key 只在词边界处命中，防 "he" 误命中 "the" */
+    private boolean matchWholeWords;
     private boolean disabled;
     private boolean excludeRecursion;
     private boolean preventRecursion;
@@ -133,6 +135,14 @@ public class WorldBookEntry {
 
     public void setCaseSensitive(boolean caseSensitive) {
         this.caseSensitive = caseSensitive;
+    }
+
+    public boolean isMatchWholeWords() {
+        return matchWholeWords;
+    }
+
+    public void setMatchWholeWords(boolean matchWholeWords) {
+        this.matchWholeWords = matchWholeWords;
     }
 
     public boolean isDisabled() {

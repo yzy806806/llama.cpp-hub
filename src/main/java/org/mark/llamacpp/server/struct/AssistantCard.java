@@ -39,6 +39,12 @@ public class AssistantCard {
     /** 对话后指令（post_history_instructions）：注入到历史之后的指令段（世界书同通道） */
     private String postHistoryInstructions;
 
+    /** 作者注记（Author's Note）：随世界书通道注入新消息段的全局提醒 */
+    private String authorNote;
+
+    /** 备选开场白（酒馆 alternate_greetings）：新聊天可选的开场白列表 */
+    private List<String> alternateGreetings = new ArrayList<>();
+
     public AssistantCard() {
     }
 
@@ -114,6 +120,22 @@ public class AssistantCard {
         this.postHistoryInstructions = postHistoryInstructions;
     }
 
+    public String getAuthorNote() {
+        return authorNote;
+    }
+
+    public void setAuthorNote(String authorNote) {
+        this.authorNote = authorNote;
+    }
+
+    public List<String> getAlternateGreetings() {
+        return alternateGreetings;
+    }
+
+    public void setAlternateGreetings(List<String> alternateGreetings) {
+        this.alternateGreetings = alternateGreetings == null ? new ArrayList<>() : alternateGreetings;
+    }
+
     /** 是否携带任何有效内容（用于判断旧 assistant 是否有 card） */
     public boolean isEmpty() {
         return (name == null || name.isBlank())
@@ -138,7 +160,9 @@ public class AssistantCard {
             parts.add("[Scenario]\n" + scenario);
         }
         if (mesExample != null && !mesExample.isBlank()) {
-            parts.add("[Example Dialogue]\n" + mesExample);
+            // 示例对话 role 化：解析 {{user}}/{{char}} 交替的 few-shot（酒馆 mes_example 格式），
+            // 保持 system 单条约束，用 <START> 分隔符标明示例区块
+            parts.add("[Example Dialogue]\n" + formatExampleDialogue(mesExample));
         }
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             parts.add(systemPrompt);
@@ -147,5 +171,20 @@ public class AssistantCard {
             return null;
         }
         return String.join("\n\n", parts);
+    }
+
+    /**
+     * 示例对话 role 化。
+     * <p>
+     * 酒馆 mes_example 是 {@code {{user}}: ...\n{{char}}: ...} 交替的纯文本，
+     * 模型端 few-shot 语义依赖 role 标记。这里将未标记的行保持原样（作者写法各异），
+     * 仅将首尾包裹 <START>/<END> 并保留原文——宏替换在出站组装时统一做。
+     */
+    private static String formatExampleDialogue(String mesExample) {
+        String trimmed = mesExample.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        return "<START>\n" + trimmed + "\n<END>";
     }
 }

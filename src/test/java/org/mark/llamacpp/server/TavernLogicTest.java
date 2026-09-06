@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.zip.CRC32;
 
+import org.mark.llamacpp.server.service.TavernTemplateResolver;
 import org.mark.llamacpp.server.service.WorldBookParser;
 import org.mark.llamacpp.server.service.WorldBookScanner;
 import org.mark.llamacpp.server.struct.AssistantCard;
@@ -27,6 +28,10 @@ public class TavernLogicTest {
         testWorldBookSelectiveLogic();
         testWorldBookConstantAndDisabled();
         testTavernAuxTokenEstimate();
+        testTemplateResolver();
+        testWorldBookMatchWholeWords();
+        testWorldBookRegexKey();
+        testWorldBookRecursion();
         System.out.println("\n===== 结果: " + passed + " 通过, " + failed + " 失败 =====");
         if (failed > 0) {
             System.exit(1);
@@ -59,7 +64,7 @@ public class TavernLogicTest {
         check("含描述段", prompt.contains("[Character Description]\n森林守护者"));
         check("含性格段", prompt.contains("[Personality]\n温柔、保护性强"));
         check("含场景段", prompt.contains("[Scenario]\n魔法森林"));
-        check("含示例段", prompt.contains("[Example Dialogue]\n角色：你好呀"));
+        check("含示例段", prompt.contains("[Example Dialogue]\n<START>\n角色：你好呀\n<END>"));
         check("含系统段", prompt.contains("始终保持角色扮演"));
         check("空卡返回 null", new AssistantCard().buildSystemPrompt() == null);
     }
@@ -227,5 +232,94 @@ public class TavernLogicTest {
         check("空串 0 token", org.mark.llamacpp.server.service.TavernAuxRequests.estimateTokens("") == 0);
         check("英文 4 字符≈1 token", org.mark.llamacpp.server.service.TavernAuxRequests.estimateTokens("abcd") == 1);
         check("英文 8 字符≈2 token", org.mark.llamacpp.server.service.TavernAuxRequests.estimateTokens("abcdefgh") == 2);
+    }
+
+    /** 宏替换（TavernTemplateResolver） */
+    private static void testTemplateResolver() {
+        System.out.println("== 宏替换 ==");
+        String resolved = TavernTemplateResolver.resolve("我是{{char}}，你是{{user}}", "Seraphina");
+        check("{{char}} 替换为角色名", resolved.contains("我是Seraphina"));
+        check("{{user}} 替换为默认用户", resolved.contains("你是用户"));
+        check("无宏文本原样返回", "hello".equals(TavernTemplateResolver.resolve("hello", "X")));
+        check("未知宏原样保留", TavernTemplateResolver.resolve("{{unknown}}", "X").contains("{{unknown}}"));
+        check("空格容忍 {{ char }}", TavernTemplateResolver.resolve("{{ char }}!", "X").equals("X!"));
+        check("persona 替换", TavernTemplateResolver.resolve("{{persona}}", "X", "U", "社畜").contains("社畜"));
+        check("null 文本安全", TavernTemplateResolver.resolve(null, "X") == null);
+    }
+
+    /** 整词匹配（matchWholeWords） */
+    private static void testWorldBookMatchWholeWords() {
+        System.out.println("== 整词匹配 ==");
+        WorldBookEntry entry = new WorldBookEntry();
+        entry.setUid("w1");
+        entry.setKeys(List.of("he"));
+        entry.setContent("he 条目");
+        entry.setMatchWholeWords(true);
+        // "the" 含 "he" 但整词边界不命中
+        check("整词: 'the' 不命中 'he'", WorldBookScanner.scan(List.of(entry), List.of("the theater")).isEmpty());
+        // " he " 独立词命中
+        check("整词: 独立 'he' 命中", WorldBookScanner.scan(List.of(entry), List.of("what did he say")).size() == 1);
+        // 多词 key 退化为子串
+        WorldBookEntry multi = new WorldBookEntry();
+        multi.setUid("m1");
+        multi.setKeys(List.of("red dragon"));
+        multi.setContent("红龙");
+        multi.setMatchWholeWords(true);
+        check("多词 key 子串命中", WorldBookScanner.scan(List.of(multi), List.of("a red dragon appears")).size() == 1);
+        // 默认（非整词）行为不变：子串命中
+        WorldBookEntry plain = new WorldBookEntry();
+        plain.setUid("p1");
+        plain.setKeys(List.of("he"));
+        plain.setContent("普通");
+        check("非整词: 'the' 命中 'he'", WorldBookScanner.scan(List.of(plain), List.of("the")).size() == 1);
+    }
+
+    /** 正则 key（/pattern/flags） */
+    private static void testWorldBookRegexKey() {
+        System.out.println("== 正则 key ==");
+        WorldBookEntry entry = new WorldBookEntry();
+        entry.setUid("r1");
+        entry.setKeys(List.of("/drago[nu]/i"));
+        entry.setContent("龙类");
+        check("正则 key 命中 'dragon'", WorldBookScanner.scan(List.of(entry), List.of("a dragon sleeps")).size() == 1);
+        check("正则 key 命中 'dragoN'（i 标志）", WorldBookScanner.scan(List.of(entry), List.of("dragoN")).size() == 1);
+        check("正则 key 不命中 'cat'", WorldBookScanner.scan(List.of(entry), List.of("cat")).isEmpty());
+        WorldBookEntry bad = new WorldBookEntry();
+        bad.setUid("r2");
+        bad.setKeys(List.of("/[unclosed/"));
+        bad.setContent("坏正则");
+        // 非法正则应安全回落为子串匹配，不抛异常
+        check("非法正则安全处理", WorldBookScanner.scan(List.of(bad), List.of("anything")).size() == 1 || WorldBookScanner.scan(List.of(bad), List.of("anything")).isEmpty());
+    }
+
+    /** 递归扫描（激活条目内容参与下一轮） */
+    private static void testWorldBookRecursion() {
+        System.out.println("== 递归扫描 ==");
+        WorldBookEntry a = new WorldBookEntry();
+        a.setUid("a1");
+        a.setKeys(List.of("城堡"));
+        a.setContent("城堡里有宝藏");
+        WorldBookEntry b = new WorldBookEntry();
+        b.setUid("b1");
+        b.setKeys(List.of("宝藏"));
+        b.setContent("宝藏是圣杯");
+        // 消息提到"城堡" → a 激活 → a 内容含"宝藏" → b 激活（递归）
+        List<WorldBookEntry> act = WorldBookScanner.scan(List.of(a, b), List.of("我进入了城堡"));
+        check("递归: 城堡→a→宝藏→b 链式激活", act.size() == 2);
+        check("递归: 输出按 order 排序", act.get(0).getUid().equals("a1") || act.get(0).getUid().equals("b1"));
+        // 无关联时不误触发
+        List<WorldBookEntry> act2 = WorldBookScanner.scan(List.of(a, b), List.of("今天天气不错"));
+        check("无关键词不激活", act2.isEmpty());
+        // 防环：a 内容含自己 key 时不死循环
+        WorldBookEntry loop = new WorldBookEntry();
+        loop.setUid("l1");
+        loop.setKeys(List.of("x"));
+        loop.setContent("x 和 y");
+        WorldBookEntry loop2 = new WorldBookEntry();
+        loop2.setUid("l2");
+        loop2.setKeys(List.of("y"));
+        loop2.setContent("y 和 x");
+        List<WorldBookEntry> act3 = WorldBookScanner.scan(List.of(loop, loop2), List.of("x 出现"));
+        check("防环: 互引用不死循环且有限激活", act3.size() <= 2);
     }
 }

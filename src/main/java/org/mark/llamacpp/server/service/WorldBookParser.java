@@ -111,6 +111,7 @@ public final class WorldBookParser {
         entry.setOrder(readInt(obj, "order", 100));
         entry.setProbability(readInt(obj, "probability", 100));
         entry.setCaseSensitive(readBoolean(obj, "caseSensitive", false));
+        entry.setMatchWholeWords(readBoolean(obj, "matchWholeWords", readBoolean(obj, "match_whole_words", false)));
         entry.setDisabled(readBoolean(obj, "disable", false));
         entry.setExcludeRecursion(readBoolean(obj, "excludeRecursion", false));
         entry.setPreventRecursion(readBoolean(obj, "preventRecursion", false));

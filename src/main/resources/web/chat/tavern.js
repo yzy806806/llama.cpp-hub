@@ -157,6 +157,7 @@
       creatorNotes: data.creator_notes || data.creatorNotes || '',
       creator: data.creator || '',
       characterVersion: data.character_version || data.characterVersion || '',
+      authorNote: data.author_note || data.authorNote || '',
       tags: data.tags || [],
       // 开场白备选（新建聊天时可切换）
       alternateGreetings: Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [],
@@ -327,6 +328,39 @@
     }
   }
 
+  /* ---- 全局世界书 ---- */
+
+  async function importGlobalWorldBook(file) {
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      throw new Error('世界书文件不是有效的 JSON');
+    }
+    if (!parsed || (!parsed.entries && !Array.isArray(parsed) && typeof parsed !== 'object')) {
+      throw new Error('世界书格式无效：缺少 entries 结构');
+    }
+    const state = getState();
+    if (!state) {
+      throw new Error('状态未初始化');
+    }
+    state.globalWorldBook = text;
+    if (stateAccessor && typeof stateAccessor.onGlobalWorldBookChanged === 'function') {
+      stateAccessor.onGlobalWorldBookChanged(text);
+    }
+    return parsed;
+  }
+
+  function clearGlobalWorldBook() {
+    const state = getState();
+    if (!state) return;
+    delete state.globalWorldBook;
+    if (stateAccessor && typeof stateAccessor.onGlobalWorldBookChanged === 'function') {
+      stateAccessor.onGlobalWorldBookChanged(null);
+    }
+  }
+
   /* ---- 回复选项（CYOA） ---- */
 
   function isSuggestionsEnabled() {
@@ -473,6 +507,62 @@
     }
   }
 
+  /* ---- 开场白选择 ---- */
+
+  function getGreetingOptions() {
+    const assistant = getCurrentAssistant();
+    const list = [];
+    if (assistant && assistant.card) {
+      const firstMes = assistant.card.firstMes;
+      if (typeof firstMes === 'string' && firstMes.trim()) {
+        list.push({ index: -1, label: '默认开场白', preview: firstMes });
+      }
+      const alternates = Array.isArray(assistant.card.alternateGreetings) ? assistant.card.alternateGreetings : [];
+      alternates.forEach((g, i) => {
+        if (typeof g === 'string' && g.trim()) {
+          list.push({ index: i, label: '开场白 ' + (i + 1), preview: g });
+        }
+      });
+    }
+    return list;
+  }
+
+  /** 当前选中的开场白序号（-1 = first_mes），存 state 供发送时带 X-Tavern-Greeting */
+  function getSelectedGreetingIndex() {
+    try {
+      const state = getState();
+      return (state && typeof state.tavernGreetingIndex === 'number') ? state.tavernGreetingIndex : -1;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  function setSelectedGreetingIndex(index) {
+    const state = getState();
+    if (!state) return;
+    state.tavernGreetingIndex = typeof index === 'number' ? index : -1;
+    if (stateAccessor && typeof stateAccessor.persist === 'function') {
+      try {
+        stateAccessor.persist();
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  /* ---- Prompt 预览（Debugger） ---- */
+
+  async function fetchPromptPreview() {
+    const conversation = getCurrentConversation();
+    const assistant = getCurrentAssistant();
+    if (!conversation) throw new Error('没有当前会话');
+    const body = {
+      conversationId: conversation.id,
+      assistantName: assistant && assistant.name ? assistant.name : ''
+    };
+    return apiPost('/api/chat/prompt-preview', body);
+  }
+
   /* ---- UI 绑定 ---- */
 
   function bindUi() {
@@ -574,6 +664,98 @@
         }
       });
     }
+
+    // 作者注记（Author's Note）
+    const authorNoteInput = document.getElementById('tavernAuthorNoteInput');
+    if (authorNoteInput) {
+      authorNoteInput.addEventListener('change', () => {
+        const assistant = getCurrentAssistant();
+        if (!assistant) return;
+        if (!assistant.card) assistant.card = {};
+        assistant.card.authorNote = authorNoteInput.value.trim();
+        if (stateAccessor && typeof stateAccessor.onAssistantChanged === 'function') {
+          stateAccessor.onAssistantChanged(assistant);
+        }
+      });
+    }
+
+    // 全局世界书
+    const gwbInput = document.getElementById('tavernGlobalWorldBookInput');
+    const gwbImportBtn = document.getElementById('tavernGlobalWorldBookImportBtn');
+    const gwbClearBtn = document.getElementById('tavernGlobalWorldBookClearBtn');
+    const gwbStatus = document.getElementById('tavernGlobalWorldBookStatus');
+    if (gwbImportBtn && gwbInput) {
+      gwbImportBtn.addEventListener('click', () => gwbInput.click());
+      gwbInput.addEventListener('change', async () => {
+        const file = gwbInput.files && gwbInput.files[0];
+        if (!file) return;
+        try {
+          const parsed = await importGlobalWorldBook(file);
+          const entries = parsed && parsed.entries
+            ? (Array.isArray(parsed.entries) ? parsed.entries.length : Object.keys(parsed.entries).length)
+            : 0;
+          if (gwbStatus) {
+            gwbStatus.textContent = '已导入全局世界书（' + entries + ' 条）';
+            gwbStatus.style.color = 'inherit';
+          }
+          if (gwbClearBtn) gwbClearBtn.disabled = false;
+          toast('success', '全局世界书已导入');
+        } catch (e) {
+          toast('error', e.message || '全局世界书导入失败');
+        }
+        gwbInput.value = '';
+      });
+    }
+    if (gwbClearBtn) {
+      gwbClearBtn.addEventListener('click', async () => {
+        clearGlobalWorldBook();
+        if (gwbStatus) gwbStatus.textContent = '';
+        if (gwbClearBtn) gwbClearBtn.disabled = true;
+        try {
+          await persist();
+        } catch (e) {
+          // ignore
+        }
+        toast('success', '全局世界书已移除');
+      });
+    }
+
+    // 开场白选择
+    const greetingSelect = document.getElementById('tavernGreetingSelect');
+    if (greetingSelect) {
+      greetingSelect.addEventListener('change', () => {
+        const val = parseInt(greetingSelect.value, 10);
+        setSelectedGreetingIndex(Number.isNaN(val) ? -1 : val);
+      });
+    }
+
+    // Prompt 预览（Debugger）
+    const previewBtn = document.getElementById('tavernPromptPreviewBtn');
+    const previewPanel = document.getElementById('tavernPromptPreviewPanel');
+    if (previewBtn && previewPanel) {
+      previewBtn.addEventListener('click', async () => {
+        try {
+          const result = await fetchPromptPreview();
+          const sections = Array.isArray(result?.data?.sections) ? result.data.sections : [];
+          const total = result?.data?.totalTokens || 0;
+          if (!sections.length) {
+            previewPanel.textContent = '（无内容可预览）';
+            previewPanel.classList.remove('hidden');
+            return;
+          }
+          const lines = sections.map((sec, i) => {
+            const tokens = sec.tokens != null ? sec.tokens : '?';
+            return '── [' + (sec.name || i) + '] ' + tokens + ' tokens · ' + (sec.source || '') + ' ──\n' + (sec.content || '');
+          });
+          lines.push('── 合计: ' + total + ' tokens ──');
+          previewPanel.textContent = lines.join('\n\n');
+          previewPanel.classList.remove('hidden');
+        } catch (e) {
+          previewPanel.textContent = '预览失败: ' + (e.message || e);
+          previewPanel.classList.remove('hidden');
+        }
+      });
+    }
   }
 
   /** 从当前 assistant 同步 UI 状态（切换助手时调用） */
@@ -599,6 +781,40 @@
       wbStatus.textContent = assistant && assistant.worldBook ? '世界书已启用' : '';
       wbStatus.style.color = 'inherit';
     }
+    // 作者注记
+    const authorNoteInput = document.getElementById('tavernAuthorNoteInput');
+    if (authorNoteInput) {
+      authorNoteInput.value = (assistant && assistant.card && assistant.card.authorNote) || '';
+    }
+    // 全局世界书状态（accessor 未初始化时安全跳过——页面早期调用不崩溃）
+    let state = null;
+    try {
+      state = getState();
+    } catch (e) {
+      state = null;
+    }
+    const gwbClearBtn = document.getElementById('tavernGlobalWorldBookClearBtn');
+    const gwbStatus = document.getElementById('tavernGlobalWorldBookStatus');
+    const hasGlobal = !!(state && state.globalWorldBook);
+    if (gwbClearBtn) gwbClearBtn.disabled = !hasGlobal;
+    if (gwbStatus) {
+      gwbStatus.textContent = hasGlobal ? '全局世界书已启用' : '';
+      gwbStatus.style.color = 'inherit';
+    }
+    // 开场白下拉
+    const greetingSelect = document.getElementById('tavernGreetingSelect');
+    if (greetingSelect) {
+      const options = getGreetingOptions();
+      greetingSelect.innerHTML = '';
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = String(opt.index);
+        option.textContent = opt.label + ' — ' + opt.preview.slice(0, 40);
+        greetingSelect.appendChild(option);
+      });
+      greetingSelect.value = String(getSelectedGreetingIndex());
+      greetingSelect.disabled = options.length === 0;
+    }
   }
 
   async function persist() {
@@ -623,6 +839,8 @@
     clearCard,
     importWorldBook,
     clearWorldBook,
+    importGlobalWorldBook,
+    clearGlobalWorldBook,
     isSuggestionsEnabled,
     generateSuggestions,
     onSuggestionPicked,
@@ -631,6 +849,10 @@
     estimateTokens,
     parseCharacterCardBytes,
     setStateAccessor,
-    normalizeCard
+    normalizeCard,
+    getGreetingOptions,
+    getSelectedGreetingIndex,
+    setSelectedGreetingIndex,
+    fetchPromptPreview
   };
 })();

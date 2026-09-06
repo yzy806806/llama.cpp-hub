@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -569,9 +570,31 @@ public class EasyChatService {
 					} catch (Exception we) {
 						logger.warn("[Tavern] 世界书扫描失败，跳过注入 conversation={}", conversationId, we);
 					}
-					// 开场白：新会话时 first_mes 作为首条 assistant 消息（仅在历史为空时由 writer 注入）
-					String firstMessage = finalTavernContext != null && finalTavernContext.card != null
-							? finalTavernContext.card.getFirstMes() : null;
+					// 开场白：新会话时 first_mes 作为首条 assistant 消息（仅在历史为空时由 writer 注入）。
+					// 宏替换 {{char}}/{{user}}；若前端指定了 alternate greeting 序号（X-Tavern-Greeting header），
+					// 则改用对应备选开场白（酒馆新聊天可挑开场白语义）
+					String firstMessage = null;
+					if (finalTavernContext != null && finalTavernContext.card != null) {
+						String greetingRaw = null;
+						int greetingIndex = -1;
+						try {
+							String gh = request.headers().get("X-Tavern-Greeting");
+							if (gh != null && !gh.isBlank()) {
+								greetingIndex = Integer.parseInt(gh.trim());
+							}
+						} catch (Exception ignore) {
+							greetingIndex = -1;
+						}
+						if (greetingIndex >= 0 && finalTavernContext.card.getAlternateGreetings() != null
+								&& greetingIndex < finalTavernContext.card.getAlternateGreetings().size()) {
+							greetingRaw = finalTavernContext.card.getAlternateGreetings().get(greetingIndex);
+						} else {
+							greetingRaw = finalTavernContext.card.getFirstMes();
+						}
+						if (greetingRaw != null && !greetingRaw.isBlank()) {
+							firstMessage = this.resolveTavernText(greetingRaw, finalTavernContext.charName);
+						}
+					}
 
 					if (finalIsRemoteNode) {
 						this.handleRemoteNodeRequest(ctx, conversationId, finalNodeId, finalModelId, finalSystemPrompt,
@@ -2120,7 +2143,7 @@ public class EasyChatService {
 		// Build context: system prompt (with role card) + recent history + world info
 		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
 				? this.resolveAssistantTavern(assistantName)
-				: new AssistantTavernContext(null, null, null, null);
+				: new AssistantTavernContext(null, null, null, null, null);
 		String systemPrompt = tavern.systemPrompt;
 		String worldInfoPrefix = null;
 		if (conversationId != null && !conversationId.isBlank()) {
@@ -2243,6 +2266,80 @@ public class EasyChatService {
 	}
 
 	/**
+	 * Prompt Debugger 预览：返回最终 prompt 的分段组装信息（不调用模型）。
+	 * <p>
+	 * body: {assistantName?, conversationId?}
+	 * 返回 {sections: [{name, role, content, tokens, source}], totalTokens}
+	 */
+	public void handlePromptPreview(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.POST) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
+			return;
+		}
+		JsonObject body;
+		try {
+			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
+			return;
+		}
+		if (body == null) {
+			return;
+		}
+		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
+		String assistantName = JsonUtil.getJsonString(body, "assistantName", "");
+
+		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
+				? this.resolveAssistantTavern(assistantName)
+				: new AssistantTavernContext(null, null, null, null, null);
+
+		JsonArray sections = new JsonArray();
+		// 1) system（角色卡）
+		if (tavern.systemPrompt != null && !tavern.systemPrompt.isBlank()) {
+			sections.add(buildPreviewSection("system", "system", tavern.systemPrompt, "角色卡/系统提示词"));
+		}
+		// 2) 世界书 + Author's Note + post-history（新消息段注入前缀）
+		if (conversationId != null && !conversationId.isBlank()) {
+			try {
+				String worldInfoPrefix = this.buildWorldInfoPrefix(tavern, conversationId, false);
+				if (worldInfoPrefix != null && !worldInfoPrefix.isBlank()) {
+					sections.add(buildPreviewSection("world_info", "user", worldInfoPrefix, "世界书/作者注记/对话后指令"));
+				}
+			} catch (Exception e) {
+				logger.warn("[Tavern] prompt 预览世界书组装失败", e);
+			}
+			// 3) 历史消息
+			List<String> recent = this.collectRecentFragmentTexts(conversationId, 24);
+			for (String text : recent) {
+				if (text != null && !text.isBlank()) {
+					sections.add(buildPreviewSection("history", "user", text, "历史消息"));
+				}
+			}
+		}
+		int total = 0;
+		for (JsonElement el : sections) {
+			if (el.isJsonObject()) {
+				total += JsonUtil.getJsonInt(el.getAsJsonObject(), "tokens", 0);
+			}
+		}
+		Map<String, Object> data = new HashMap<>();
+		data.put("sections", sections);
+		data.put("totalTokens", total);
+		data.put("charName", tavern.charName);
+		LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+	}
+
+	private static JsonObject buildPreviewSection(String name, String role, String content, String source) {
+		JsonObject sec = new JsonObject();
+		sec.addProperty("name", name);
+		sec.addProperty("role", role);
+		sec.addProperty("content", content);
+		sec.addProperty("tokens", TavernAuxRequests.estimateTokens(content));
+		sec.addProperty("source", source);
+		return sec;
+	}
+
+	/**
 	 * 执行上下文压缩（写入会话摘要）。
 	 * <p>
 	 * body: {conversationId, summary, keepRecent}
@@ -2315,7 +2412,7 @@ public class EasyChatService {
 	 */
 	private AssistantTavernContext resolveAssistantTavern(String assistantName) {
 		if (assistantName == null || assistantName.isBlank()) {
-			return new AssistantTavernContext(null, null, null, null);
+			return new AssistantTavernContext(null, null, null, null, null);
 		}
 		for (Path stateFile : this.getAssistantStateFiles()) {
 			JsonObject assistant = this.findAssistantInState(stateFile, assistantName);
@@ -2324,7 +2421,7 @@ public class EasyChatService {
 			}
 		}
 		logger.info("[EasyChat] 未在同步状态中找到助手 assistantName={}", assistantName);
-		return new AssistantTavernContext(null, null, null, null);
+		return new AssistantTavernContext(null, null, null, null, null);
 	}
 
 	/** 按 name 查找 assistant 对象；不存在返回 null */
@@ -2358,6 +2455,9 @@ public class EasyChatService {
 	private AssistantTavernContext buildTavernContext(JsonObject assistant) {
 		String legacySystemPrompt = JsonUtil.getJsonString(assistant, "systemPrompt", "");
 		String assistantId = JsonUtil.getJsonString(assistant, "id", "");
+		// 角色名：card.name 优先（酒馆卡名覆盖助手名），否则 assistant.name
+		String assistantName = JsonUtil.getJsonString(assistant, "name", "");
+		String charName = assistantName;
 
 		// 角色卡：优先 card 字段（前端导入 PNG/JSON 后存这里）
 		String systemPrompt = legacySystemPrompt;
@@ -2366,6 +2466,9 @@ public class EasyChatService {
 			try {
 				JsonObject cardObj = assistant.getAsJsonObject("card");
 				card = JsonUtil.fromJson(cardObj, AssistantCard.class);
+				if (card.getName() != null && !card.getName().isBlank()) {
+					charName = card.getName();
+				}
 				String assembled = card.buildSystemPrompt();
 				if (assembled != null && !assembled.isBlank()) {
 					systemPrompt = assembled;
@@ -2374,6 +2477,11 @@ public class EasyChatService {
 			} catch (Exception e) {
 				logger.warn("[Tavern] 解析 assistant card 失败 assistantId={}", assistantId, e);
 			}
+		}
+
+		// 宏替换（{{char}}/{{user}}/{{persona}}）：出站时替换，存储保持原样
+		if (systemPrompt != null && !systemPrompt.isBlank() && systemPrompt.contains("{{")) {
+			systemPrompt = TavernTemplateResolver.resolve(systemPrompt, charName, "用户", null);
 		}
 
 		// 世界书：优先 worldBook 字段（酒馆 JSON 字符串）
@@ -2389,7 +2497,7 @@ public class EasyChatService {
 		if (worldBook != null && worldBook.isBlank()) {
 			worldBook = null;
 		}
-		return new AssistantTavernContext(systemPrompt, worldBook, assistantId, card);
+		return new AssistantTavernContext(systemPrompt, worldBook, assistantId, card, charName);
 	}
 
 	/** 酒馆上下文字段（system prompt + 世界书 JSON + assistantId） */
@@ -2398,12 +2506,14 @@ public class EasyChatService {
 		final String worldBookJson;
 		final String assistantId;
 		final AssistantCard card;
+		final String charName;
 
-		AssistantTavernContext(String systemPrompt, String worldBookJson, String assistantId, AssistantCard card) {
+		AssistantTavernContext(String systemPrompt, String worldBookJson, String assistantId, AssistantCard card, String charName) {
 			this.systemPrompt = systemPrompt;
 			this.worldBookJson = worldBookJson;
 			this.assistantId = assistantId;
 			this.card = card;
+			this.charName = charName;
 		}
 	}
 
@@ -2425,33 +2535,105 @@ public class EasyChatService {
 		if (tavernContext == null) {
 			return null;
 		}
-		// 1) post_history_instructions：注入到「历史之后」——即最新 user 消息前缀（世界书同通道，缓存友好）
+		String charName = tavernContext.charName;
 		StringBuilder sb = new StringBuilder();
+
+		// 1) Author's Note：全局提醒（随世界书通道注入新消息段，Qwen3.6 安全）
+		String authorNote = tavernContext.card != null ? tavernContext.card.getAuthorNote() : null;
+		if (authorNote != null && !authorNote.isBlank()) {
+			sb.append("[Author's Note]\n").append(resolveTavernText(authorNote, charName));
+		}
+
+		// 2) post_history_instructions：注入到「历史之后」——即最新 user 消息前缀
 		String postHistory = tavernContext.card != null ? tavernContext.card.getPostHistoryInstructions() : null;
 		if (postHistory != null && !postHistory.isBlank()) {
-			sb.append("[Post History Instructions]").append("\n").append(postHistory);
+			if (sb.length() > 0) {
+				sb.append("\n\n");
+			}
+			sb.append("[Post History Instructions]\n").append(resolveTavernText(postHistory, charName));
 		}
-		// 2) 世界书激活条目
-		if (tavernContext.worldBookJson != null && !tavernContext.worldBookJson.isBlank() && !ephemeral) {
-			List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
-			if (!entries.isEmpty()) {
+
+		// 3) 世界书激活条目（全局书 + 角色书合并扫描）
+		if (!ephemeral) {
+			List<WorldBookEntry> activated = new ArrayList<>();
+			// 全局世界书（state 级，不分角色）：与角色书同语义，合入扫描
+			String globalBook = this.readGlobalWorldBook();
+			if (globalBook != null && !globalBook.isBlank()) {
+				List<WorldBookEntry> globalEntries = WorldBookParser.parse(globalBook);
 				List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
-				if (!recentMessages.isEmpty()) {
-					List<WorldBookEntry> activated = WorldBookScanner.scan(entries, recentMessages);
-					if (!activated.isEmpty()) {
-						if (sb.length() > 0) {
-							sb.append("\n\n");
-						}
-						sb.append("[World Info]");
-						for (WorldBookEntry entry : activated) {
-							sb.append("\n\n").append(entry.formatContent());
-						}
-						logger.info("[Tavern] 世界书注入 {} 条 conversation={}", activated.size(), conversationId);
-					}
+				if (!recentMessages.isEmpty() && !globalEntries.isEmpty()) {
+					activated.addAll(WorldBookScanner.scan(globalEntries, recentMessages));
 				}
+			}
+			// 角色世界书（assistant.worldBook）
+			if (tavernContext.worldBookJson != null && !tavernContext.worldBookJson.isBlank()) {
+				List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
+				List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
+				if (!recentMessages.isEmpty() && !entries.isEmpty()) {
+					activated.addAll(WorldBookScanner.scan(entries, recentMessages));
+				}
+			}
+			if (!activated.isEmpty()) {
+				activated.sort(Comparator.comparingInt(WorldBookEntry::getOrder));
+				if (sb.length() > 0) {
+					sb.append("\n\n");
+				}
+				sb.append("[World Info]");
+				// token budget：世界书注入总量上限（默认 2048 token，防大书撑爆上下文）
+				int budget = WORLD_INFO_TOKEN_BUDGET;
+				int used = 0;
+				int injected = 0;
+				for (WorldBookEntry entry : activated) {
+					String content = resolveTavernText(entry.formatContent(), charName);
+					int tokens = TavernAuxRequests.estimateTokens(content);
+					if (used + tokens > budget) {
+						break;
+					}
+					sb.append("\n\n").append(content);
+					used += tokens;
+					injected++;
+				}
+				logger.info("[Tavern] 世界书注入 {} 条 conversation={} (budget {}/{})", injected, conversationId, used, budget);
 			}
 		}
 		return sb.length() > 0 ? sb.toString() : null;
+	}
+
+	/** 世界书注入 token 预算上限（对标酒馆 world_info_budget，防大书撑爆上下文） */
+	private static final int WORLD_INFO_TOKEN_BUDGET = 2048;
+
+	/** 宏替换包装：{{char}}/{{user}}/{{persona}} */
+	private String resolveTavernText(String text, String charName) {
+		if (text == null || !text.contains("{{")) {
+			return text;
+		}
+		return TavernTemplateResolver.resolve(text, charName, "用户", null);
+	}
+
+	/** 读 state 级全局世界书（assistants 数组之外的顶层 globalWorldBook 字段） */
+	private String readGlobalWorldBook() {
+		try {
+			for (Path stateFile : this.getAssistantStateFiles()) {
+				if (stateFile == null || !Files.isRegularFile(stateFile)) {
+					continue;
+				}
+				JsonObject state = JsonUtil.fromJson(Files.readString(stateFile, StandardCharsets.UTF_8), JsonObject.class);
+				if (state == null || !state.has("globalWorldBook")) {
+					continue;
+				}
+				JsonElement wbEl = state.get("globalWorldBook");
+				if (wbEl == null || wbEl.isJsonNull()) {
+					continue;
+				}
+				if (wbEl.isJsonPrimitive() && wbEl.getAsJsonPrimitive().isString()) {
+					return wbEl.getAsString();
+				}
+				return JsonUtil.toJson(wbEl);
+			}
+		} catch (Exception e) {
+			logger.warn("[Tavern] 读取全局世界书失败", e);
+		}
+		return null;
 	}
 
 	/**
