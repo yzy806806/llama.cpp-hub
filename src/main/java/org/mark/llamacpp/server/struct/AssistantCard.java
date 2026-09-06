@@ -36,6 +36,9 @@ public class AssistantCard {
     /** 世界书（角色卡内嵌 character_book 的原始 JSON），独立存 assistant.worldBook */
     private String characterBook;
 
+    /** 对话后指令（post_history_instructions）：注入到历史之后的指令段（世界书同通道） */
+    private String postHistoryInstructions;
+
     public AssistantCard() {
     }
 
@@ -101,6 +104,14 @@ public class AssistantCard {
 
     public void setCharacterBook(String characterBook) {
         this.characterBook = characterBook;
+    }
+
+    public String getPostHistoryInstructions() {
+        return postHistoryInstructions;
+    }
+
+    public void setPostHistoryInstructions(String postHistoryInstructions) {
+        this.postHistoryInstructions = postHistoryInstructions;
     }
 
     /** 是否携带任何有效内容（用于判断旧 assistant 是否有 card） */

@@ -70,6 +70,18 @@ final class EasyChatRequestWriter {
 			this.writeString(output, JsonUtil.toJson(summaryMsg));
 			wroteAnyMessage = true;
 		}
+		// 开场白注入：会话历史为空（新聊天）时，first_mes 作为首条 assistant 消息
+		// （酒馆语义：新聊天 = 角色先开口，用户在下面回复）
+		if (lastNonEmptySeq < 0 && spec.firstMessage != null && !spec.firstMessage.isBlank()) {
+			JsonObject firstMsg = new JsonObject();
+			firstMsg.addProperty("role", "assistant");
+			firstMsg.addProperty("content", spec.firstMessage);
+			if (wroteAnyMessage) {
+				this.writeAscii(output, COMMA);
+			}
+			this.writeString(output, JsonUtil.toJson(firstMsg));
+			wroteAnyMessage = true;
+		}
 		if (!spec.skipHistory && spec.conversationDir != null) {
 			long historyEndExclusive = storage.readNextSeq(spec.conversationDir);
 			if (spec.regenerateSeq != null) {
@@ -431,19 +443,29 @@ final class EasyChatRequestWriter {
 			final boolean stream;
 			/** 世界书激活条目文本，注入到最新一条 user 消息之前（新消息段，缓存友好） */
 			final String worldInfoPrefix;
+			/** 开场白（first_mes）：仅在会话历史为空（新聊天）时作为首条 assistant 消息注入 */
+			final String firstMessage;
 
 			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
 					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
 					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
 					boolean skipHistory, boolean stream) {
 				this(modelId, systemPrompt, conversationDir, toolsBytes, samplingParams, skipSamplingInjection, variants,
-						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, null);
+						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, null, null);
 			}
 
 			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
 					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
 					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
 					boolean skipHistory, boolean stream, String worldInfoPrefix) {
+				this(modelId, systemPrompt, conversationDir, toolsBytes, samplingParams, skipSamplingInjection, variants,
+						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, worldInfoPrefix, null);
+			}
+
+			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
+					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
+					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
+					boolean skipHistory, boolean stream, String worldInfoPrefix, String firstMessage) {
 				this.modelId = modelId;
 				this.systemPrompt = systemPrompt;
 				this.conversationDir = conversationDir;
@@ -458,6 +480,7 @@ final class EasyChatRequestWriter {
 				this.skipHistory = skipHistory;
 				this.stream = stream;
 				this.worldInfoPrefix = worldInfoPrefix;
+				this.firstMessage = firstMessage;
 			}
 		}
 }

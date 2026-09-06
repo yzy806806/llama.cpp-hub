@@ -569,10 +569,13 @@ public class EasyChatService {
 					} catch (Exception we) {
 						logger.warn("[Tavern] 世界书扫描失败，跳过注入 conversation={}", conversationId, we);
 					}
+					// 开场白：新会话时 first_mes 作为首条 assistant 消息（仅在历史为空时由 writer 注入）
+					String firstMessage = finalTavernContext != null && finalTavernContext.card != null
+							? finalTavernContext.card.getFirstMes() : null;
 
 					if (finalIsRemoteNode) {
 						this.handleRemoteNodeRequest(ctx, conversationId, finalNodeId, finalModelId, finalSystemPrompt,
-								worldInfoPrefix, finalConvDir, finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
+								worldInfoPrefix, firstMessage, finalConvDir, finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
 								finalContinueSeq, finalTransientBodyBytes, finalTransientBodyFile, finalIsEphemeral,
 								finalRequestStream, accumulator);
 					} else {
@@ -580,7 +583,7 @@ public class EasyChatService {
 
 						// Stream request body to llama.cpp
 						this.writeRequestBody(connection, conversationId, finalModelId, finalSystemPrompt,
-								worldInfoPrefix, finalConvDir,
+								worldInfoPrefix, firstMessage, finalConvDir,
 								finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
 								finalContinueSeq, finalTransientBodyBytes, finalTransientBodyFile, finalIsEphemeral,
 								finalRequestStream);
@@ -1473,7 +1476,7 @@ public class EasyChatService {
 	 * @throws IOException
 	 */
 	private void writeRequestBody(HttpURLConnection conn, String conversationId, String modelId, String systemPrompt,
-			String worldInfoPrefix, Path convDir, byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+			String worldInfoPrefix, String firstMessage, Path convDir, byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
 			Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile, boolean skipHistory,
 			boolean stream) throws IOException {
 		OutputStream logStream = this.createRequestLogStream(conversationId, modelId);
@@ -1483,7 +1486,7 @@ public class EasyChatService {
 			this.requestWriter.writeRequestBody(os,
 					new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes, samplingParams,
 							false, variants, regenerateSeq, continueSeq, transientUserMessageBytes,
-							transientUserMessageFile, skipHistory, stream, worldInfoPrefix));
+							transientUserMessageFile, skipHistory, stream, worldInfoPrefix, firstMessage));
 		} finally {
 			if (logStream != null) {
 				logStream.close();
@@ -2117,7 +2120,7 @@ public class EasyChatService {
 		// Build context: system prompt (with role card) + recent history + world info
 		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
 				? this.resolveAssistantTavern(assistantName)
-				: new AssistantTavernContext(null, null, null);
+				: new AssistantTavernContext(null, null, null, null);
 		String systemPrompt = tavern.systemPrompt;
 		String worldInfoPrefix = null;
 		if (conversationId != null && !conversationId.isBlank()) {
@@ -2312,7 +2315,7 @@ public class EasyChatService {
 	 */
 	private AssistantTavernContext resolveAssistantTavern(String assistantName) {
 		if (assistantName == null || assistantName.isBlank()) {
-			return new AssistantTavernContext(null, null, null);
+			return new AssistantTavernContext(null, null, null, null);
 		}
 		for (Path stateFile : this.getAssistantStateFiles()) {
 			JsonObject assistant = this.findAssistantInState(stateFile, assistantName);
@@ -2321,7 +2324,7 @@ public class EasyChatService {
 			}
 		}
 		logger.info("[EasyChat] 未在同步状态中找到助手 assistantName={}", assistantName);
-		return new AssistantTavernContext(null, null, null);
+		return new AssistantTavernContext(null, null, null, null);
 	}
 
 	/** 按 name 查找 assistant 对象；不存在返回 null */
@@ -2358,10 +2361,11 @@ public class EasyChatService {
 
 		// 角色卡：优先 card 字段（前端导入 PNG/JSON 后存这里）
 		String systemPrompt = legacySystemPrompt;
+		AssistantCard card = null;
 		if (assistant.has("card") && assistant.get("card").isJsonObject()) {
 			try {
 				JsonObject cardObj = assistant.getAsJsonObject("card");
-				AssistantCard card = JsonUtil.fromJson(cardObj, AssistantCard.class);
+				card = JsonUtil.fromJson(cardObj, AssistantCard.class);
 				String assembled = card.buildSystemPrompt();
 				if (assembled != null && !assembled.isBlank()) {
 					systemPrompt = assembled;
@@ -2385,7 +2389,7 @@ public class EasyChatService {
 		if (worldBook != null && worldBook.isBlank()) {
 			worldBook = null;
 		}
-		return new AssistantTavernContext(systemPrompt, worldBook, assistantId);
+		return new AssistantTavernContext(systemPrompt, worldBook, assistantId, card);
 	}
 
 	/** 酒馆上下文字段（system prompt + 世界书 JSON + assistantId） */
@@ -2393,11 +2397,13 @@ public class EasyChatService {
 		final String systemPrompt;
 		final String worldBookJson;
 		final String assistantId;
+		final AssistantCard card;
 
-		AssistantTavernContext(String systemPrompt, String worldBookJson, String assistantId) {
+		AssistantTavernContext(String systemPrompt, String worldBookJson, String assistantId, AssistantCard card) {
 			this.systemPrompt = systemPrompt;
 			this.worldBookJson = worldBookJson;
 			this.assistantId = assistantId;
+			this.card = card;
 		}
 	}
 
@@ -2416,32 +2422,36 @@ public class EasyChatService {
 	 * @return 注入前缀文本；无世界书 / 无激活条目返回 null
 	 */
 	private String buildWorldInfoPrefix(AssistantTavernContext tavernContext, String conversationId, boolean ephemeral) {
-		if (tavernContext == null || tavernContext.worldBookJson == null || tavernContext.worldBookJson.isBlank()) {
+		if (tavernContext == null) {
 			return null;
 		}
-		if (ephemeral) {
-			// 瞬时会话没有持久历史，无法扫描关键词，跳过
-			return null;
+		// 1) post_history_instructions：注入到「历史之后」——即最新 user 消息前缀（世界书同通道，缓存友好）
+		StringBuilder sb = new StringBuilder();
+		String postHistory = tavernContext.card != null ? tavernContext.card.getPostHistoryInstructions() : null;
+		if (postHistory != null && !postHistory.isBlank()) {
+			sb.append("[Post History Instructions]").append("\n").append(postHistory);
 		}
-		List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
-		if (entries.isEmpty()) {
-			return null;
+		// 2) 世界书激活条目
+		if (tavernContext.worldBookJson != null && !tavernContext.worldBookJson.isBlank() && !ephemeral) {
+			List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
+			if (!entries.isEmpty()) {
+				List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
+				if (!recentMessages.isEmpty()) {
+					List<WorldBookEntry> activated = WorldBookScanner.scan(entries, recentMessages);
+					if (!activated.isEmpty()) {
+						if (sb.length() > 0) {
+							sb.append("\n\n");
+						}
+						sb.append("[World Info]");
+						for (WorldBookEntry entry : activated) {
+							sb.append("\n\n").append(entry.formatContent());
+						}
+						logger.info("[Tavern] 世界书注入 {} 条 conversation={}", activated.size(), conversationId);
+					}
+				}
+			}
 		}
-		List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
-		if (recentMessages.isEmpty()) {
-			return null;
-		}
-		List<WorldBookEntry> activated = WorldBookScanner.scan(entries, recentMessages);
-		if (activated.isEmpty()) {
-			return null;
-		}
-		StringBuilder sb = new StringBuilder("[World Info]");
-		for (WorldBookEntry entry : activated) {
-			sb.append("\n\n").append(entry.formatContent());
-		}
-		String prefix = sb.toString();
-		logger.info("[Tavern] 世界书注入 {} 条 conversation={}", activated.size(), conversationId);
-		return prefix;
+		return sb.length() > 0 ? sb.toString() : null;
 	}
 
 	/**
@@ -2456,7 +2466,8 @@ public class EasyChatService {
 		try {
 			Path convDir = this.storage.getConversationDir(conversationId);
 			long nextSeq = this.storage.readNextSeq(convDir);
-			for (long seq = 0; seq < nextSeq && texts.size() < limit; seq++) {
+			// 倒序扫描：从最新往旧取最近 limit 条非空消息（世界书扫描窗口）
+			for (long seq = nextSeq - 1; seq >= 0 && texts.size() < limit; seq--) {
 				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(convDir, seq);
 				if (header == null || this.storage.isDeleted(header)) {
 					continue;
@@ -2478,6 +2489,8 @@ public class EasyChatService {
 					texts.add(content);
 				}
 			}
+		// 保持正序（最早在前、最新在后）：扫描时 depth 语义依赖消息顺序
+			java.util.Collections.reverse(texts);
 		} catch (Exception e) {
 			logger.warn("[Tavern] 读取会话历史失败 conversation={}", conversationId, e);
 		}
@@ -2701,7 +2714,7 @@ public class EasyChatService {
 	 * forwards to remote node via NodeManager, and proxies the SSE stream back.
 	 */
 	private void handleRemoteNodeRequest(ChannelHandlerContext ctx, String conversationId, String nodeId,
-			String modelId, String systemPrompt, String worldInfoPrefix, Path convDir, byte[] toolsBytes, JsonObject samplingParams,
+			String modelId, String systemPrompt, String worldInfoPrefix, String firstMessage, Path convDir, byte[] toolsBytes, JsonObject samplingParams,
 			Map<Long, Integer> variants, Long regenerateSeq, Long continueSeq, byte[] transientUserMessageBytes,
 			Path transientUserMessageFile, boolean skipHistory, boolean stream, StreamAccumulator accumulator)
 			throws Exception {
@@ -2716,9 +2729,9 @@ public class EasyChatService {
 					OutputStream os = (remoteLogStream != null) ? new TeeOutputStream(output, remoteLogStream) : output;
 					try {
 						this.requestWriter.writeRequestBody(os,
-												new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-														samplingParams, false, variants, regenerateSeq, continueSeq,
-														transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, worldInfoPrefix));
+																new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
+																		samplingParams, false, variants, regenerateSeq, continueSeq,
+																		transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, worldInfoPrefix, firstMessage));
 					} finally {
 						if (remoteLogStream != null) {
 							try {

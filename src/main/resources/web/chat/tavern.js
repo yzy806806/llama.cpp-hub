@@ -152,7 +152,16 @@
       scenario: data.scenario || '',
       firstMes: data.first_mes || data.firstMes || '',
       mesExample: data.mes_example || data.mesExample || '',
-      systemPrompt: data.system_prompt || data.systemPrompt || ''
+      systemPrompt: data.system_prompt || data.systemPrompt || '',
+      postHistoryInstructions: data.post_history_instructions || data.postHistoryInstructions || '',
+      creatorNotes: data.creator_notes || data.creatorNotes || '',
+      creator: data.creator || '',
+      characterVersion: data.character_version || data.characterVersion || '',
+      tags: data.tags || [],
+      // 开场白备选（新建聊天时可切换）
+      alternateGreetings: Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [],
+      // raw 原卡完整保留（未知字段不丢，供后续 V3 扩展）
+      raw: parsed
     };
     // 内嵌世界书（character_book）
     if (data.character_book && typeof data.character_book === 'object') {
