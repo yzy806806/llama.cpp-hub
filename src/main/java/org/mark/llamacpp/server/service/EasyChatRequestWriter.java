@@ -47,6 +47,9 @@ final class EasyChatRequestWriter {
 		}
 
 		boolean isContinue = spec.continueSeq != null;
+		// 预扫描：确定历史范围内最后一条 user fragment 的 seq（世界书只注入到它之前，
+		// 保持 system + 旧历史段字节不变（prefix cache 命中），动态内容收口到新消息段）。
+		long lastUserSeq = findLastUserSeq(spec);
 		if (!spec.skipHistory && spec.conversationDir != null) {
 			long historyEndExclusive = storage.readNextSeq(spec.conversationDir);
 			if (spec.regenerateSeq != null) {
@@ -80,7 +83,21 @@ final class EasyChatRequestWriter {
 				if (wroteAnyMessage) {
 					this.writeAscii(output, COMMA);
 				}
-				this.storage.streamSlice(slice, output);
+				// 世界书注入：仅当最新 user 消息恰好是历史最后一条消息（正常发送场景）
+				// 才注入到它之前——这是新消息段，保持缓存友好；
+				// regenerate/continue 场景最后一条是 assistant，不注入（避免污染中段）。
+				boolean injectWorldInfo = seq == lastUserSeq
+						&& seq == historyEndExclusive - 1
+						&& spec.worldInfoPrefix != null && !spec.worldInfoPrefix.isBlank();
+				if (injectWorldInfo) {
+					String content = spec.worldInfoPrefix + "\n" + readFragmentContent(spec.conversationDir, seq, resolvedVariant);
+					JsonObject userMsg = new JsonObject();
+					userMsg.addProperty("role", "user");
+					userMsg.addProperty("content", content);
+					this.writeString(output, JsonUtil.toJson(userMsg));
+				} else {
+					this.storage.streamSlice(slice, output);
+				}
 				wroteAnyMessage = true;
 			}
 		}
@@ -270,42 +287,126 @@ final class EasyChatRequestWriter {
 		output.write(text.getBytes(StandardCharsets.UTF_8));
 	}
 
+	/** 判断 fragment 是否为 user 消息（读 payload 顶层 role，容忍缺失/损坏） */
+	private boolean isUserFragment(Path dir, long seq, int variantIndex) {
+		try {
+			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
+			if (payload == null || payload.length == 0) {
+				return false;
+			}
+			JsonObject parsed = JsonUtil.tryParseObject(payload);
+			if (parsed == null) {
+				return false;
+			}
+			String role = JsonUtil.getJsonString(parsed, "role", "");
+			return "user".equals(role);
+		} catch (IOException | RuntimeException e) {
+			return false;
+		}
+	}
+
+	/**
+	 * 预扫描历史，返回最后一条 user fragment 的 seq；不存在返回 -1。
+	 * 只读头部 + 极小 payload 判断 role，不流式输出。
+	 */
+	private long findLastUserSeq(RequestSpec spec) {
+		if (spec.skipHistory || spec.conversationDir == null) {
+			return -1;
+		}
+		try {
+			long historyEndExclusive = this.storage.readNextSeq(spec.conversationDir);
+			if (spec.regenerateSeq != null) {
+				historyEndExclusive = Math.min(historyEndExclusive, spec.regenerateSeq.longValue());
+			}
+			if (spec.continueSeq != null) {
+				historyEndExclusive = Math.min(historyEndExclusive, spec.continueSeq.longValue() + 1);
+			}
+			long lastUser = -1;
+			for (long seq = 0; seq < historyEndExclusive; seq++) {
+				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(spec.conversationDir, seq);
+				if (header == null || this.storage.isDeleted(header)) {
+					continue;
+				}
+				Integer preferredVariant = spec.variants == null ? null : spec.variants.get(seq);
+				int resolvedVariant = this.storage.resolveVariantIndex(header, preferredVariant);
+				if (resolvedVariant < 0) {
+					continue;
+				}
+				if (this.isUserFragment(spec.conversationDir, seq, resolvedVariant)) {
+					lastUser = seq;
+				}
+			}
+			return lastUser;
+		} catch (Exception e) {
+			return -1;
+		}
+	}
+
+	/** 读取 fragment 的 content 字段（用于世界书注入时拼接内容） */
+	private String readFragmentContent(Path dir, long seq, int variantIndex) {
+		try {
+			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
+			if (payload == null || payload.length == 0) {
+				return "";
+			}
+			JsonObject parsed = JsonUtil.tryParseObject(payload);
+			if (parsed == null) {
+				return "";
+			}
+			String content = JsonUtil.getJsonString(parsed, "content", "");
+			return content == null ? "" : content;
+		} catch (IOException | RuntimeException e) {
+			return "";
+		}
+	}
+
 	private void writeAscii(OutputStream output, byte[] bytes) throws IOException {
 		output.write(bytes);
 	}
 
 	static final class RequestSpec {
-		final String modelId;
-		final String systemPrompt;
-		final Path conversationDir;
-		final byte[] toolsBytes;
-		final JsonObject samplingParams;
-		final boolean skipSamplingInjection;
-		final Map<Long, Integer> variants;
-		final Long regenerateSeq;
-		final Long continueSeq;
-		final byte[] transientUserMessageBytes;
-		final Path transientUserMessageFile;
-		final boolean skipHistory;
-		final boolean stream;
+			final String modelId;
+			final String systemPrompt;
+			final Path conversationDir;
+			final byte[] toolsBytes;
+			final JsonObject samplingParams;
+			final boolean skipSamplingInjection;
+			final Map<Long, Integer> variants;
+			final Long regenerateSeq;
+			final Long continueSeq;
+			final byte[] transientUserMessageBytes;
+			final Path transientUserMessageFile;
+			final boolean skipHistory;
+			final boolean stream;
+			/** 世界书激活条目文本，注入到最新一条 user 消息之前（新消息段，缓存友好） */
+			final String worldInfoPrefix;
 
-		RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
-			JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
-			Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
-			boolean skipHistory, boolean stream) {
-			this.modelId = modelId;
-			this.systemPrompt = systemPrompt;
-			this.conversationDir = conversationDir;
-			this.toolsBytes = toolsBytes;
-			this.samplingParams = samplingParams;
-			this.skipSamplingInjection = skipSamplingInjection;
-			this.variants = variants;
-			this.regenerateSeq = regenerateSeq;
-			this.continueSeq = continueSeq;
-			this.transientUserMessageBytes = transientUserMessageBytes;
-			this.transientUserMessageFile = transientUserMessageFile;
-			this.skipHistory = skipHistory;
-			this.stream = stream;
+			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
+					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
+					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
+					boolean skipHistory, boolean stream) {
+				this(modelId, systemPrompt, conversationDir, toolsBytes, samplingParams, skipSamplingInjection, variants,
+						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, null);
+			}
+
+			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
+					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
+					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
+					boolean skipHistory, boolean stream, String worldInfoPrefix) {
+				this.modelId = modelId;
+				this.systemPrompt = systemPrompt;
+				this.conversationDir = conversationDir;
+				this.toolsBytes = toolsBytes;
+				this.samplingParams = samplingParams;
+				this.skipSamplingInjection = skipSamplingInjection;
+				this.variants = variants;
+				this.regenerateSeq = regenerateSeq;
+				this.continueSeq = continueSeq;
+				this.transientUserMessageBytes = transientUserMessageBytes;
+				this.transientUserMessageFile = transientUserMessageFile;
+				this.skipHistory = skipHistory;
+				this.stream = stream;
+				this.worldInfoPrefix = worldInfoPrefix;
+			}
 		}
-	}
 }

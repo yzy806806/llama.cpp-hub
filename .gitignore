@@ -20,3 +20,5 @@ llama-server.exe
 /src/main/resources/tools/gguf-mem
 /src/main/resources/web/llama.cpp
 /tools-dev/
+# Hermes plan docs (local only)
+/.hermes/

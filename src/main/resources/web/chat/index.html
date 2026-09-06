@@ -106,6 +106,8 @@
             </div>
           </div>
           <div id="messages"></div>
+          <!-- 酒馆回复选项（Galgame 风格） -->
+          <div id="tavernSuggestionsContainer" class="tavern-suggestions" hidden></div>
         </div>
       </section>
       <aside id="messageRail" class="message-rail hidden" aria-label="消息列表" data-i18n-attr="aria-label" data-i18n="page.chat.main.message_rail.title">
@@ -357,6 +359,64 @@
                 </div>
                 <p class="settings-field-desc" data-i18n="page.chat.main.settings.general.system_desc">定义当前助手的行为和角色，会在本会话使用该助手时发送</p>
                 <textarea id="systemPromptInput" class="drawer-textarea" placeholder="例如：你是一个专业、准确、简洁的中文助手。" data-i18n-attr="placeholder" data-i18n="page.chat.main.settings.general.system_placeholder"></textarea>
+              </div>
+              <!-- 酒馆角色卡 -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.card_label">角色卡（酒馆）</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.card_desc">导入 SillyTavern 角色卡（.png 或 .json），自动填充角色设定到系统提示词</p>
+                <div class="tavern-card-row">
+                  <input id="tavernCardInput" class="hidden" type="file" accept=".png,.json,image/png,application/json">
+                  <button id="tavernCardImportBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.tavern.card_import">导入角色卡</button>
+                  <button id="tavernCardClearBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.tavern.card_clear">移除角色卡</button>
+                </div>
+                <p id="tavernCardStatus" class="settings-field-desc"></p>
+              </div>
+              <!-- 酒馆世界书 -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.worldbook_label">世界书（酒馆）</label>
+                </div>
+                <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.worldbook_desc">导入 SillyTavern 世界书（.json），聊天中提及关键词时自动注入设定</p>
+                <div class="tavern-card-row">
+                  <input id="tavernWorldBookInput" class="hidden" type="file" accept=".json,application/json">
+                  <button id="tavernWorldBookImportBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.tavern.worldbook_import">导入世界书</button>
+                  <button id="tavernWorldBookClearBtn" class="ghost-button danger-text" type="button" disabled data-i18n="page.chat.main.settings.tavern.worldbook_clear">移除世界书</button>
+                </div>
+                <p id="tavernWorldBookStatus" class="settings-field-desc"></p>
+              </div>
+              <!-- 回复选项（CYOA） -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.suggestions_label">回复选项（Galgame 风格）</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.tavern.suggestions_toggle">自动生成回复选项</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.suggestions_desc">每次回复完成后自动生成 3 条下一步行动建议，点击即代入</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="tavernSuggestionsToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
+              </div>
+              <!-- 上下文压缩 -->
+              <div class="settings-field">
+                <div class="settings-field-header">
+                  <label data-i18n="page.chat.main.settings.tavern.compress_label">上下文压缩</label>
+                </div>
+                <label class="settings-toggle">
+                  <div class="settings-toggle-text">
+                    <span data-i18n="page.chat.main.settings.tavern.compress_toggle">自动压缩长对话</span>
+                    <span class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.compress_desc">对话接近上下文上限时自动摘要旧消息，避免早期剧情被截断丢失</span>
+                  </div>
+                  <span class="toggle-switch">
+                    <input id="tavernCompressToggle" type="checkbox">
+                    <span class="toggle-slider"></span>
+                  </span>
+                </label>
               </div>
               <div class="settings-field">
                 <div class="settings-field-header">
@@ -689,6 +749,7 @@
   <script src="/js/marked.umd.js"></script>
   <script src="/js/highlight.min.js"></script>
   <script src="./chat-mcp.js"></script>
+  <script src="./tavern.js"></script>
   <script src="./audio-recorder.js"></script>
   <script src="/js/i18n.js"></script>
   <script src="/js/node-cache.js"></script>
@@ -4081,6 +4142,9 @@
         mcpModule.render();
       }
       syncAutoReplyButton();
+      if (window.Tavern && typeof window.Tavern.syncUiFromAssistant === 'function') {
+        window.Tavern.syncUiFromAssistant();
+      }
     }
 
     function syncAssistantAvatarPreview(assistant) {
@@ -8004,6 +8068,27 @@
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
+        // 酒馆扩展：回复完成后自动触发上下文压缩 + 回复选项
+        if (window.Tavern) {
+          try {
+            const tavernCompressed = await window.Tavern.maybeCompress(getCurrentConversation());
+            if (!tavernCompressed && !requestFailed && window.Tavern.isSuggestionsEnabled()) {
+              const conv = getCurrentConversation();
+              const messages = Array.isArray(conv?.messages) ? conv.messages : [];
+              const last = messages[messages.length - 1];
+              if (last && last.role === 'assistant' && (typeof last.content === 'string' ? last.content.trim() : contentToText(last.content).trim())) {
+                try {
+                  const suggestions = await window.Tavern.generateSuggestions(3);
+                  window.dispatchEvent(new CustomEvent('tavern:suggestions', { detail: suggestions }));
+                } catch (e) {
+                  console.warn('[Tavern] 回复选项生成失败', e);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[Tavern] 回复后处理失败', e);
+          }
+        }
       }
       return !requestFailed;
     }
@@ -11352,6 +11437,83 @@ function confirmAudioRecording() {
       updateStatus('', window.I18N.t('page.chat.main.status.loading_models', '正在加载模型列表…'), window.I18N.t('page.chat.main.status.disconnected', '未连接'));
       await refreshModels();
       syncSettingsInputs();
+      // 初始化酒馆（角色卡/世界书/回复选项/压缩）模块
+      if (window.Tavern) {
+        window.Tavern.setStateAccessor({
+          getState: () => state,
+          getCurrentAssistant,
+          getCurrentConversation: () => getCurrentConversation(),
+          onAssistantChanged: (assistant) => {
+            if (assistant) {
+              state.systemPrompt = assistant.systemPrompt || '';
+              state.assistantName = assistant.name || '';
+            }
+            try {
+              saveSettings(false);
+            } catch (e) {
+              // ignore
+            }
+            window.Tavern.syncUiFromAssistant();
+          },
+          onConversationChanged: (conversation) => {
+            if (conversation) {
+              const idx = state.conversations.findIndex(c => c.id === conversation.id);
+              if (idx >= 0) {
+                state.conversations[idx] = conversation;
+              }
+            }
+            try {
+              persistState({ immediate: true });
+            } catch (e) {
+              // ignore
+            }
+            renderMessages();
+          },
+          persist: () => persistState({ immediate: true }),
+          toast: (type, message) => {
+            try {
+              showToast(type, message);
+            } catch (e) {
+              // ignore
+            }
+          }
+        });
+        window.Tavern.init();
+        // 回复选项渲染与代入
+        const tavernSugContainer = document.getElementById('tavernSuggestionsContainer');
+        window.addEventListener('tavern:suggestions', (event) => {
+          const suggestions = Array.isArray(event.detail) ? event.detail : [];
+          if (!tavernSugContainer) return;
+          if (!suggestions.length) {
+            tavernSugContainer.hidden = true;
+            tavernSugContainer.innerHTML = '';
+            return;
+          }
+          tavernSugContainer.innerHTML = '';
+          const title = document.createElement('div');
+          title.className = 'tavern-suggestions-title';
+          title.textContent = window.I18N.t('page.chat.main.tavern.suggestions_title', '下一步行动');
+          tavernSugContainer.appendChild(title);
+          suggestions.forEach((text, index) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'tavern-suggestion-btn';
+            btn.textContent = (index + 1) + '. ' + text;
+            btn.addEventListener('click', async () => {
+              try {
+                els.promptInput.value = text;
+                tavernSugContainer.hidden = true;
+                tavernSugContainer.innerHTML = '';
+                await sendMessage();
+              } catch (e) {
+                console.warn('[Tavern] 选项代入失败', e);
+              }
+            });
+            tavernSugContainer.appendChild(btn);
+          });
+          tavernSugContainer.hidden = false;
+        });
+      }
     }
 
     void init();
