@@ -12,12 +12,12 @@ JsoupCli 是一个轻量级的命令行网页文本提取工具，基于 Netty +
 ## 环境要求
 
 - JDK 21+
-- Netty 4.1.35.Final
+- Netty 4.1.137.Final（lib/ 目录下模块化 jar，classpath 用 lib/* 通配）
 
 ## 运行方式
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli [选项]
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli [选项]
 ```
 
 ## 参数说明
@@ -64,19 +64,19 @@ java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli [�
 ### 基本抓取
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://github.com/ggml-org/llama.cpp
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://github.com/ggml-org/llama.cpp
 ```
 
 ### 指定 CSS 选择器
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://example.com -s "main article"
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://example.com -s "main article"
 ```
 
 ### JSON 输出
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://example.com --json
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://example.com --json
 ```
 
 输出格式：
@@ -93,13 +93,13 @@ java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --u
 ### 通过代理访问
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://example.com --proxy-host 127.0.0.1 --proxy-port 7890
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://example.com --proxy-host 127.0.0.1 --proxy-port 7890
 ```
 
 ### 截断输出
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://example.com --max-length 500
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://example.com --max-length 500
 ```
 
 ### 访问自签名 HTTPS 站点
@@ -107,7 +107,7 @@ java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --u
 无需额外配置，工具默认信任所有 SSL 证书：
 
 ```bash
-java -cp "release.jar;lib/netty-all-4.1.35.Final.jar" org.jsoup.app.JsoupCli --url https://127.0.0.1:8080/v1/models
+java -cp "release.jar;lib/*" org.jsoup.app.JsoupCli --url https://127.0.0.1:8080/v1/models
 ```
 
 ## 文本提取规则

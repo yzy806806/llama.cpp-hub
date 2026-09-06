@@ -19,7 +19,7 @@ cmake --build launcher\build --config Release
 
 ```
 ##MAINCLASS=org.mark.llamacpp.server.LlamaServer
--Djava.class.path=classes;libs\gson-2.8.9.jar;libs\netty-all-4.1.35.Final.jar
+-Djava.class.path=classes;libs\gson-2.8.9.jar;libs\netty-common-4.1.137.Final.jar
 -Xms96m
 -Xmx96m
 -XX:+UseSerialGC
