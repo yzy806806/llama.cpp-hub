@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -2494,6 +2495,8 @@ if (loadSuccess.get()) {
 
 		if (cmd != null && !cmd.trim().isEmpty()) {
 			String processed = splitSpecType(cmd.trim());
+			// 安全红线：用户 cmd 中的 --host 一律剥离（hub 强制 127.0.0.1，防绑定绕过）
+			processed = ParamTool.stripFlagWithValue(processed, "--host");
 			processed = ParamTool.stripFlagWithValue(processed, "--alias");
 			if (!enableVision) {
 				processed = ParamTool.stripFlagWithValue(processed, "--mmproj");
@@ -2503,6 +2506,8 @@ if (loadSuccess.get()) {
 		}
 		if (extraParams != null && !extraParams.trim().isEmpty()) {
 			String processed = splitSpecType(extraParams.trim());
+			// 安全红线：extraParams 中的 --host 同样剥离
+			processed = ParamTool.stripFlagWithValue(processed, "--host");
 			processed = ParamTool.stripFlagWithValue(processed, "--alias");
 			if (!enableVision) {
 				processed = ParamTool.stripFlagWithValue(processed, "--mmproj");
@@ -2593,7 +2598,7 @@ if (loadSuccess.get()) {
 			}
 		}
 
-		// 4. 组装命令：binary + 强制 -m + 用户参数 + 缺失的后端必需参数
+		// 4. 组装命令：binary + 强制 -m + 用户参数 + 后端必需参数
 		StringBuilder sb = new StringBuilder();
 		String exeName = isWindows() ? "llama-server.exe" : "llama-server";
 		String exe = Paths.get(llamaBinPath, exeName).toString();
@@ -2603,14 +2608,18 @@ if (loadSuccess.get()) {
 		String modelFile = Paths.get(targetModel.getPath(), targetModel.getPrimaryModel().getFileName()).toString();
 		sb.append(ParamTool.quoteIfNeeded(modelFile));
 
+		// 安全红线：剥离用户输入的安全敏感参数（hub 独占，用户不可覆盖）。
+		// 任何 --host/--host=... 变体都从 userArgs 中移除——不是"缺省才补"，
+		// 而是"无论用户传什么，最终 host 都由 hub 强制指定为 127.0.0.1"。
+		// 同理 --model/-m 已在第 3 步剥离；--port/--alias/--timeout/--metrics 也由 hub 控制。
+		userArgs = stripHubOwnedFlags(userArgs);
 		for (String arg : userArgs) {
 			sb.append(' ').append(ParamTool.quoteIfNeeded(arg));
 		}
 
-		if (!hasFlagToken(userArgs, "--port")) {
-			sb.append(" --port ").append(port);
-		}
+		sb.append(" --port ").append(port);
 
+		// hub 强制参数：无条件追加（用户无法通过任何方式覆盖）
 		String alias;
 		if (aliasModelId != null && !aliasModelId.trim().isEmpty()) {
 			alias = aliasModelId;
@@ -2620,21 +2629,51 @@ if (loadSuccess.get()) {
 				alias = targetModel.getModelId();
 			}
 		}
-		if (!hasFlagToken(userArgs, "--alias")) {
-			sb.append(" --alias ").append(ParamTool.quoteIfNeeded(alias));
-		}
-
-		if (!hasFlagToken(userArgs, "--host")) {
-			sb.append(" --host 127.0.0.1");
-		}
-		if (!hasFlagToken(userArgs, "--timeout")) {
-			sb.append(" --timeout 36000");
-		}
-		if (!hasFlagToken(userArgs, "--metrics")) {
-			sb.append(" --metrics");
-		}
+		sb.append(" --alias ").append(ParamTool.quoteIfNeeded(alias));
+		sb.append(" --host 127.0.0.1");
+		sb.append(" --timeout 36000");
+		sb.append(" --metrics");
 
 		return sb.toString().trim();
+	}
+
+	/**
+	 * 剥离用户参数中所有 hub 独占的安全敏感参数（含全部变体）。
+	 * <ul>
+	 * <li>--host / --host=xxx（任意形式都剥离，hub 强制 127.0.0.1）</li>
+	 * <li>--port / --port=xxx（hub 决定端口）</li>
+	 * <li>--alias / --alias=xxx（hub 决定模型别名）</li>
+	 * <li>--timeout / --timeout=xxx（hub 决定超时）</li>
+	 * <li>--metrics / --metrics=xxx（hub 决定指标开关）</li>
+	 * <li>-m / --model / --model=xxx（已在第 3 步剥离，此处防御性兜底）</li>
+	 * </ul>
+	 * 用户传的参数中如果出现这些，其值会被静默丢弃（参数本体也不保留）。
+	 */
+	private static List<String> stripHubOwnedFlags(List<String> userArgs) {
+		if (userArgs == null || userArgs.isEmpty()) {
+			return userArgs;
+		}
+		Set<String> hubOwnedFlags = new HashSet<>(Arrays.asList(
+				"--host", "--port", "--alias", "--timeout", "--metrics", "--model", "-m"));
+		List<String> result = new ArrayList<>(userArgs.size());
+		for (int i = 0; i < userArgs.size(); i++) {
+			String arg = userArgs.get(i);
+			String flagName = arg.contains("=") ? arg.substring(0, arg.indexOf('=')) : arg;
+			if (hubOwnedFlags.contains(flagName)) {
+				// 剥离该 flag；若为独立 token 形式且下一个 token 不是 hub-owned flag
+				// （防止 --metrics -m 场景误吞 -m 导致其值漏网），则跳过其值
+				if (!arg.contains("=") && i + 1 < userArgs.size()) {
+					String next = userArgs.get(i + 1);
+					String nextFlag = next.contains("=") ? next.substring(0, next.indexOf('=')) : next;
+					if (!hubOwnedFlags.contains(nextFlag)) {
+						i++;
+					}
+				}
+				continue;
+			}
+			result.add(arg);
+		}
+		return result;
 	}
 
 	private static boolean isValidEnvVarKey(String key) {

@@ -2,6 +2,7 @@ package org.mark.llamacpp.server.security;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -80,7 +81,9 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
     /** 记录清理间隔 */
     private static final long CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
-    private static final ConcurrentHashMap<String, AttemptTracker> failedAttempts = new ConcurrentHashMap<>();
+    private static final Map<String, AttemptTracker> failedAttempts = new ConcurrentHashMap<>();
+    /** failedAttempts 容量上限：超过后裁剪最旧条目（防大量来源 IP 耗尽内存） */
+    private static final int MAX_FAILED_ATTEMPTS_ENTRIES = 50_000;
     private static volatile long lastCleanup = System.currentTimeMillis();
 
     static class AttemptTracker {
@@ -232,6 +235,16 @@ document.getElementById('key').addEventListener('keydown',function(ev){if(ev.key
             return t.bannedUntil > 0 && t.bannedUntil <= now
                     || t.bannedUntil == 0 && now - t.lastAttempt > BAN_DURATION_MS;
         });
+        // 容量上限：超过 MAX_FAILED_ATTEMPTS_ENTRIES 时裁剪最旧条目
+        // （记录失败时间顺序，淘汰 lastAttempt 最早的条目直到回到上限内）
+        int overflow = failedAttempts.size() - MAX_FAILED_ATTEMPTS_ENTRIES;
+        if (overflow > 0) {
+            failedAttempts.entrySet().stream()
+                    .sorted(java.util.Comparator.comparingLong(e -> e.getValue().lastAttempt))
+                    .limit(overflow)
+                    .forEach(e -> failedAttempts.remove(e.getKey()));
+            logger.warn("failedAttempts 条目数超过上限 {}，已裁剪 {} 条", MAX_FAILED_ATTEMPTS_ENTRIES, overflow);
+        }
     }
 
     /**

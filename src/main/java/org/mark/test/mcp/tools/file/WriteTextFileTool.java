@@ -22,6 +22,9 @@ import com.google.gson.JsonObject;
  */
 public class WriteTextFileTool implements IMCPTool {
 
+	/** 单次写入大小上限：1MB（防 MCP 被滥用写超大文件） */
+	private static final int MAX_FILE_BYTES = 1024 * 1024;
+
 	private final Path fallbackRootPath;
 	private final boolean windowsRuntime;
 
@@ -74,7 +77,16 @@ public class WriteTextFileTool implements IMCPTool {
 		boolean append = this.getBoolean(arguments, "append", false);
 		boolean createParentDirectories = this.getBoolean(arguments, "createParentDirectories", true);
 		try {
+			// 安全红线：单次写入大小限制（防 MCP 被滥用写超大文件/耗尽磁盘）
+			byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+			if (contentBytes.length > MAX_FILE_BYTES) {
+				return new McpMessage().addText(JsonUtil.toJson(this.error("写入失败: 内容超过单文件大小限制 " + (MAX_FILE_BYTES / 1024 / 1024) + "MB")));
+			}
 			Path filePath = this.resolveFilePath(absolutePathText);
+			// 安全红线：拒绝符号链接逃逸（workspace 内软链指向外部路径时，写入会落在链接目标上）
+			if (this.isSymlinkInPath(filePath)) {
+				return new McpMessage().addText(JsonUtil.toJson(this.error("写入失败: 目标路径包含符号链接，已拒绝（安全限制）")));
+			}
 			Path parent = filePath.getParent();
 			if (parent != null && createParentDirectories) {
 				Files.createDirectories(parent);
@@ -91,7 +103,7 @@ public class WriteTextFileTool implements IMCPTool {
 			response.put("path", filePath.toString());
 			response.put("rootPath", this.fallbackRootPath.toString());
 			response.put("mode", append ? "append" : "overwrite");
-			response.put("byteSize", content.getBytes(StandardCharsets.UTF_8).length);
+			response.put("byteSize", contentBytes.length);
 			return new McpMessage().addText(JsonUtil.toJson(response));
 		} catch (IOException e) {
 			return new McpMessage().addText(JsonUtil.toJson(this.error("写入失败: " + e.getMessage())));
@@ -114,6 +126,28 @@ public class WriteTextFileTool implements IMCPTool {
 					+ this.fallbackRootPath);
 		}
 		return this.fallbackRootPath.resolve(normalizedText).toAbsolutePath().normalize();
+	}
+
+	/**
+	 * 检查路径任意一级是否包含符号链接（含目标自身）。
+	 * 用于拒绝"workspace 内软链指向外部敏感路径"的逃逸写入。
+	 */
+	private boolean isSymlinkInPath(Path path) {
+		if (path == null) {
+			return false;
+		}
+		Path current = path;
+		while (current != null) {
+			Path leaf = current.getFileName();
+			if (leaf == null) {
+				break;
+			}
+			if (Files.isSymbolicLink(current)) {
+				return true;
+			}
+			current = current.getParent();
+		}
+		return false;
 	}
 
 	private boolean isRuntimeAbsolutePath(String pathText) {

@@ -71,10 +71,10 @@ public class NettySseMcpServer {
 									.addLast(new ChunkedWriteHandler()).addLast(new McpRouterHandler(NettySseMcpServer.this));
 						}
 					});
-			this.bindFuture = bootstrap.bind(this.port).sync();
+			this.bindFuture = bootstrap.bind("127.0.0.1", this.port).sync();
 			this.running = true;
 			this.bindFuture.channel().closeFuture().addListener(future -> this.running = false);
-			logger.info("MCP测试服务启动成功: http://localhost:{}", this.port);
+			logger.info("MCP测试服务启动成功: http://127.0.0.1:{}", this.port);
 		} catch (Exception e) {
 			this.bindFuture = null;
 			this.running = false;

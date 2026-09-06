@@ -203,7 +203,7 @@ jobs:
         run: |
           cat > launcher.conf.win << 'EOF'
           ##MAINCLASS=org.mark.llamacpp.server.LlamaServer
-          -Djava.class.path=./classes;./lib/gson-2.8.9.jar;./lib/netty-all-4.1.35.Final.jar;./lib/log4j-api-2.22.1.jar;./lib/log4j-core-2.22.1.jar;./lib/log4j-slf4j2-impl-2.22.1.jar;./lib/slf4j-api-2.0.9.jar
+          -Djava.class.path=./classes;./lib/gson-2.8.9.jar;./lib/log4j-api-2.22.1.jar;./lib/log4j-core-2.22.1.jar;./lib/log4j-slf4j2-impl-2.22.1.jar;./lib/slf4j-api-2.0.9.jar;./lib/netty-common-4.1.137.Final.jar;./lib/netty-buffer-4.1.137.Final.jar;./lib/netty-transport-4.1.137.Final.jar;./lib/netty-resolver-4.1.137.Final.jar;./lib/netty-codec-4.1.137.Final.jar;./lib/netty-codec-http-4.1.137.Final.jar;./lib/netty-handler-4.1.137.Final.jar;./lib/netty-handler-proxy-4.1.137.Final.jar;./lib/netty-transport-native-unix-common-4.1.137.Final.jar;./lib/netty-transport-classes-epoll-4.1.137.Final.jar;./lib/netty-transport-classes-kqueue-4.1.137.Final.jar
           -Xms128m
           -Xmx128m
           -XX:MaxDirectMemorySize=128m

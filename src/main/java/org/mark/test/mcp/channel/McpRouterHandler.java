@@ -3,6 +3,7 @@ package org.mark.test.mcp.channel;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.mark.llamacpp.server.LlamaServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.LastHttpContent;
 
 
@@ -43,6 +45,23 @@ public class McpRouterHandler extends SimpleChannelInboundHandler<FullHttpReques
 			logger.info("MCP路由分发OPTIONS: uri={}", request.uri());
 			this.server.handleOptions(ctx);
 			return;
+		}
+		// 安全红线：MCP Bearer token 校验（除 OPTIONS 预检外的所有请求）
+		// 配置了 token 时，所有请求必须携带 Authorization: Bearer <token>
+		// （常量时间比较，防 timing attack）。未配置 token 时依赖 127.0.0.1 绑定兜底。
+		String expectedToken = LlamaServer.getMcpServerToken();
+		if (expectedToken != null && !expectedToken.isBlank()) {
+			String auth = request.headers().get("Authorization");
+			String provided = null;
+			if (auth != null && auth.startsWith("Bearer ")) {
+				provided = auth.substring("Bearer ".length()).trim();
+			}
+			if (!constantTimeEquals(provided, expectedToken)) {
+				logger.info("MCP未授权请求被拒绝: remote={}, uri={}", ctx.channel().remoteAddress(), request.uri());
+				this.server.sendJsonHttp(ctx, HttpResponseStatus.UNAUTHORIZED,
+						this.server.newErrorBody("2.0", null, -32001, "unauthorized: missing or invalid Bearer token"));
+				return;
+			}
 		}
 		String path = this.server.cleanPath(request.uri());
 		Matcher streamableMatcher = STREAMABLE_PATH.matcher(path);
@@ -79,6 +98,20 @@ public class McpRouterHandler extends SimpleChannelInboundHandler<FullHttpReques
 		}
 		logger.info("MCP路由未命中: method={}, path={}", request.method().name(), path);
 		this.server.handleNotFound(ctx);
+	}
+
+	private static boolean constantTimeEquals(String a, String b) {
+		if (a == null || b == null) {
+			return false;
+		}
+		if (a.length() != b.length()) {
+			return false;
+		}
+		int diff = 0;
+		for (int i = 0; i < a.length(); i++) {
+			diff |= a.charAt(i) ^ b.charAt(i);
+		}
+		return diff == 0;
 	}
 
 	@Override

@@ -19,10 +19,80 @@
   <dependencies>
     <dependency>
       <groupId>io.netty</groupId>
-      <artifactId>netty-all</artifactId>
-      <version>4.1.35.Final</version>
+      <artifactId>netty-common</artifactId>
+      <version>4.1.137.Final</version>
       <scope>system</scope>
-      <systemPath>${basedir}/lib/netty-all-4.1.35.Final.jar</systemPath>
+      <systemPath>${basedir}/lib/netty-common-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-buffer</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-buffer-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-transport-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-resolver</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-resolver-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-codec-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-codec-http</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-codec-http-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-handler</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-handler-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-handler-proxy</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-handler-proxy-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-unix-common</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-transport-native-unix-common-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-classes-epoll</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-transport-classes-epoll-4.1.137.Final.jar</systemPath>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-classes-kqueue</artifactId>
+      <version>4.1.137.Final</version>
+      <scope>system</scope>
+      <systemPath>${basedir}/lib/netty-transport-classes-kqueue-4.1.137.Final.jar</systemPath>
     </dependency>
     <dependency>
       <groupId>com.google.code.gson</groupId>

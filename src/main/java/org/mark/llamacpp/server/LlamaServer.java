@@ -412,6 +412,8 @@ public class LlamaServer {
 	private static volatile String apiKey = "";
 
 	private static volatile boolean mcpServerEnabled = false;
+	/** MCP Bearer token（可选）。配置后所有 MCP 请求必须携带；未配置仅允许 localhost 访问 */
+	private static volatile String mcpServerToken = "";
 
 	private static volatile DefaultMcpServiceImpl mcpServerService;
 
@@ -558,8 +560,13 @@ public class LlamaServer {
 			if (compat != null) {
 				if (compat.has("mcpServer")) {
 					JsonObject mcpServer = compat.getAsJsonObject("mcpServer");
-					if (mcpServer != null && mcpServer.has("enabled")) {
-						mcpServerEnabled = mcpServer.get("enabled").getAsBoolean();
+					if (mcpServer != null) {
+						if (mcpServer.has("enabled")) {
+							mcpServerEnabled = mcpServer.get("enabled").getAsBoolean();
+						}
+						if (mcpServer.has("token") && mcpServer.get("token").isJsonPrimitive()) {
+							mcpServerToken = mcpServer.get("token").getAsString().trim();
+						}
 					}
 				}
 			}
@@ -874,6 +881,10 @@ public class LlamaServer {
 
 	public static boolean isMcpServerEnabled() {
 		return mcpServerEnabled;
+	}
+
+	public static String getMcpServerToken() {
+		return mcpServerToken;
 	}
 
 	public static boolean isMcpServerRunning() {
