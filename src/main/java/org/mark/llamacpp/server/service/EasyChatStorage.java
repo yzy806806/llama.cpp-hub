@@ -29,6 +29,7 @@ final class EasyChatStorage {
 	static final String INDEX_FILE = "index.bin";
 	static final String TOOLS_FILE = "tools.bin";
 	static final String MODEL_INDEX_FILE = "model_index.json";
+	static final String SUMMARY_FILE = "summary.json";
 
 	private static final int IDX_HEADER = 16;
 	private static final int IDX_CONV_NAME_LEN = 4;
@@ -359,6 +360,53 @@ final class EasyChatStorage {
 			return null;
 		}
 		return Files.readAllBytes(file);
+	}
+
+	/**
+	 * 会话摘要写入（上下文压缩用）。格式：
+	 * { "summary": "...", "keepFromSeq": N }
+	 * keepFromSeq = 摘要之后保留的历史起始 seq（seq &lt; keepFromSeq 的消息被摘要替代，读取时跳过）。
+	 * 空摘要删除文件。
+	 */
+	void writeSummary(Path dir, String summaryText, long keepFromSeq) throws IOException {
+		Path file = dir.resolve(SUMMARY_FILE);
+		if (summaryText == null || summaryText.isBlank()) {
+			Files.deleteIfExists(file);
+			return;
+		}
+		JsonObject obj = new JsonObject();
+		obj.addProperty("summary", summaryText);
+		obj.addProperty("keepFromSeq", keepFromSeq);
+		byte[] bytes = JsonUtil.toJson(obj).getBytes(StandardCharsets.UTF_8);
+		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
+		Files.write(temp, bytes);
+		Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
+	}
+
+	/**
+	 * 会话摘要读取。无摘要返回 null。损坏容忍返回 null。
+	 * 返回 [summary, keepFromSeq]。
+	 */
+	Object[] readSummary(Path convDir) {
+		Path file = convDir == null ? null : convDir.resolve(SUMMARY_FILE);
+		if (file == null || !Files.isRegularFile(file)) {
+			return null;
+		}
+		try {
+			JsonObject obj = JsonUtil.tryParseObject(Files.readAllBytes(file));
+			if (obj == null) {
+				return null;
+			}
+			String summary = JsonUtil.getJsonString(obj, "summary", "");
+			long keepFromSeq = obj.has("keepFromSeq") && obj.get("keepFromSeq").isJsonPrimitive()
+					? obj.get("keepFromSeq").getAsLong() : 0;
+			if (summary == null || summary.isBlank()) {
+				return null;
+			}
+			return new Object[]{summary, keepFromSeq};
+		} catch (Exception e) {
+			return null;
+		}
 	}
 
 	void writeTools(Path dir, byte[] data) throws IOException {

@@ -2239,6 +2239,65 @@ public class EasyChatService {
 		});
 	}
 
+	/**
+	 * 执行上下文压缩（写入会话摘要）。
+	 * <p>
+	 * body: {conversationId, summary, keepRecent}
+	 * 后端把摘要写入 summary.json，历史读取时跳过 keepFromSeq 之前的旧消息。
+	 * 前端不再自行改 messages（那不影响后端历史）。
+	 */
+	public void handleCompress(ChannelHandlerContext ctx, FullHttpRequest request) {
+		if (request.method() != HttpMethod.POST) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
+			return;
+		}
+		JsonObject body;
+		try {
+			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
+		} catch (Exception e) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
+			return;
+		}
+		if (body == null) {
+			return;
+		}
+		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
+		if (conversationId == null || conversationId.isBlank()) {
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PARAM_CONVERSATION_ID_REQUIRED));
+			return;
+		}
+		String summary = JsonUtil.getJsonString(body, "summary", "");
+		int keepRecent = body.has("keepRecent") && body.get("keepRecent").isJsonPrimitive()
+				? body.get("keepRecent").getAsInt() : 20;
+		try {
+			Path convDir = this.storage.getConversationDir(conversationId);
+			long nextSeq = this.storage.readNextSeq(convDir);
+			if (summary == null || summary.isBlank()) {
+				// 清空摘要（回退到全历史）
+				this.storage.writeSummary(convDir, null, 0);
+				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(Map.of("compressed", false, "reset", true)));
+				return;
+			}
+			// keepRecent 条消息 ≈ 2*keepRecent 个 seq（user+assistant 成对），从最新往前数
+			int keepSeqSpan = Math.max(4, keepRecent * 2);
+			long keepFromSeq = Math.max(0, nextSeq - keepSeqSpan);
+			// 对齐到偶数 seq（user 起点），避免摘要后第一条变成 assistant 打破交替
+			if (keepFromSeq % 2 != 0) {
+				keepFromSeq += 1;
+			}
+			this.storage.writeSummary(convDir, summary, keepFromSeq);
+			Map<String, Object> data = new HashMap<>();
+			data.put("compressed", true);
+			data.put("keepFromSeq", keepFromSeq);
+			data.put("nextSeq", nextSeq);
+			logger.info("[Tavern] 上下文压缩 conversation={} keepFromSeq={} nextSeq={}", conversationId, keepFromSeq, nextSeq);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
+		} catch (Exception e) {
+			logger.warn("[Tavern] 上下文压缩失败 conversation={}", conversationId, e);
+			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PROCESS_FAILED + ": " + e.getMessage()));
+		}
+	}
+
 	/* ---- Assistant config lookup ---- */
 
 	/**

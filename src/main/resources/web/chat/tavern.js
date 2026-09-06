@@ -14,6 +14,7 @@
 
   const SUGGESTIONS_ENDPOINT = '/api/chat/suggestions';
   const SUMMARIZE_ENDPOINT = '/api/chat/summarize';
+  const COMPRESS_ENDPOINT = '/api/chat/compress';
 
   // 上下文压缩阈值：对话历史估算 token 超过该比例即触发（对 ctxSize 的上限）
   const COMPRESS_THRESHOLD_RATIO = 0.7;
@@ -386,7 +387,7 @@
   }
 
   /**
-   * 检查是否需要压缩，必要时生成摘要并替换历史。
+   * 检查是否需要压缩，必要时生成摘要并写入后端。
    * @returns {Promise<boolean>} 是否执行了压缩
    */
   async function maybeCompress(conversation) {
@@ -395,13 +396,14 @@
     const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
     if (messages.length < COMPRESS_KEEP_RECENT + 4) return false;
 
-    // 间隔保护：压缩后至少新增 N 条消息才再次触发
-    const lastCompressAt = Number(conversation.tavernCompressedAt || 0);
-    if (lastCompressAt > 0 && messages.length - lastCompressAt < COMPRESS_MIN_DELTA) return false;
-
+    // 间隔保护：压缩后至少新增 N 条消息才再次触发（依据后端 keepFromSeq 判定，fallback 用消息数）
     const limit = getContextLimit();
     const tokens = estimateHistoryTokens();
     if (tokens <= limit * COMPRESS_THRESHOLD_RATIO) return false;
+
+    // 若上次压缩后新增消息不足，跳过
+    const lastCompressAt = Number(conversation.tavernCompressedAt || 0);
+    if (lastCompressAt > 0 && messages.length - lastCompressAt < COMPRESS_MIN_DELTA) return false;
 
     // 触发压缩：摘要最早的除最近 COMPRESS_KEEP_RECENT 之外的消息
     const keepCount = Math.min(COMPRESS_KEEP_RECENT, messages.length - 2);
@@ -427,7 +429,15 @@
       const summary = stringifyPlain(result?.data?.summary).trim();
       if (!summary) return false;
 
-      // 用摘要消息替换被压缩的历史
+      // 写入后端 summary.json，使历史读取跳过被压缩的旧消息
+      const compressBody = {
+        conversationId: conversation.id,
+        summary,
+        keepRecent: keepCount
+      };
+      await apiPost(COMPRESS_ENDPOINT, compressBody);
+
+      // 前端 UI 同步：插入摘要消息（仅展示用，历史权威在后端）
       const summaryMessage = {
         id: 'summary-' + Date.now(),
         role: 'assistant',

@@ -47,9 +47,29 @@ final class EasyChatRequestWriter {
 		}
 
 		boolean isContinue = spec.continueSeq != null;
-		// 预扫描：确定历史范围内最后一条 user fragment 的 seq（世界书只注入到它之前，
-		// 保持 system + 旧历史段字节不变（prefix cache 命中），动态内容收口到新消息段）。
-		long lastUserSeq = findLastUserSeq(spec);
+		// 会话摘要（上下文压缩）：有 summary.json 时在 system 后注入摘要消息，
+		// 历史回放跳过 seq < keepFromSeq 的旧消息（它们已被摘要替代）。
+		Object[] summaryInfo = spec.conversationDir == null ? null : this.storage.readSummary(spec.conversationDir);
+		String conversationSummary = summaryInfo == null ? null : (String) summaryInfo[0];
+		long summaryKeepFromSeq = summaryInfo == null ? 0 : (Long) summaryInfo[1];
+		// 预扫描：历史范围内最后一条 user fragment 的 seq + 最后一条非空 fragment 的 seq。
+		// 世界书只在「最后一条非空消息恰好是 user 消息」（正常发送场景）时注入到它之前，
+		// 保持 system + 旧历史段字节不变（prefix cache 命中），动态内容收口到新消息段。
+		// regenerate/continue 场景最后一条非空是 assistant，不注入（避免污染中段）。
+		long[] scanResult = findLastSeqAndUserSeq(spec);
+		long lastUserSeq = scanResult[0];
+		long lastNonEmptySeq = scanResult[1];
+		// 摘要消息注入（在 system 之后、历史段之前）
+		if (conversationSummary != null && !conversationSummary.isBlank()) {
+			JsonObject summaryMsg = new JsonObject();
+			summaryMsg.addProperty("role", "user");
+			summaryMsg.addProperty("content", "[Conversation Summary - 之前的故事]\n" + conversationSummary);
+			if (wroteAnyMessage) {
+				this.writeAscii(output, COMMA);
+			}
+			this.writeString(output, JsonUtil.toJson(summaryMsg));
+			wroteAnyMessage = true;
+		}
 		if (!spec.skipHistory && spec.conversationDir != null) {
 			long historyEndExclusive = storage.readNextSeq(spec.conversationDir);
 			if (spec.regenerateSeq != null) {
@@ -59,7 +79,8 @@ final class EasyChatRequestWriter {
 				// Include the target assistant fragment as the last message.
 				historyEndExclusive = Math.min(historyEndExclusive, spec.continueSeq.longValue() + 1);
 			}
-			for (long seq = 0; seq < historyEndExclusive; seq++) {
+			long startSeq = Math.max(0, summaryKeepFromSeq);
+			for (long seq = startSeq; seq < historyEndExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(spec.conversationDir, seq);
 				if (header == null) {
 					continue;
@@ -83,18 +104,15 @@ final class EasyChatRequestWriter {
 				if (wroteAnyMessage) {
 					this.writeAscii(output, COMMA);
 				}
-				// 世界书注入：仅当最新 user 消息恰好是历史最后一条消息（正常发送场景）
-				// 才注入到它之前——这是新消息段，保持缓存友好；
-				// regenerate/continue 场景最后一条是 assistant，不注入（避免污染中段）。
+				// 世界书注入：仅当最后一条非空消息是 user（正常发送场景）才把它拿出来，
+				// 在 content 前拼 worldInfo 前缀后整体写出（保留 images/audios/videos 等附件字段）。
+				// regenerate/continue 最后一条非空是 assistant，不注入。
 				boolean injectWorldInfo = seq == lastUserSeq
-						&& seq == historyEndExclusive - 1
+						&& lastUserSeq == lastNonEmptySeq
+						&& seq == historyEndExclusive - 2
 						&& spec.worldInfoPrefix != null && !spec.worldInfoPrefix.isBlank();
 				if (injectWorldInfo) {
-					String content = spec.worldInfoPrefix + "\n" + readFragmentContent(spec.conversationDir, seq, resolvedVariant);
-					JsonObject userMsg = new JsonObject();
-					userMsg.addProperty("role", "user");
-					userMsg.addProperty("content", content);
-					this.writeString(output, JsonUtil.toJson(userMsg));
+					this.writeString(output, JsonUtil.toJson(this.injectWorldInfoIntoFragment(spec.conversationDir, seq, resolvedVariant, spec.worldInfoPrefix)));
 				} else {
 					this.storage.streamSlice(slice, output);
 				}
@@ -306,12 +324,13 @@ final class EasyChatRequestWriter {
 	}
 
 	/**
-	 * 预扫描历史，返回最后一条 user fragment 的 seq；不存在返回 -1。
+	 * 预扫描历史，返回 [最后一条 user fragment 的 seq, 最后一条非空 fragment 的 seq]。
+	 * 不存在返回 -1。-1 表示无匹配。
 	 * 只读头部 + 极小 payload 判断 role，不流式输出。
 	 */
-	private long findLastUserSeq(RequestSpec spec) {
+	private long[] findLastSeqAndUserSeq(RequestSpec spec) {
 		if (spec.skipHistory || spec.conversationDir == null) {
-			return -1;
+			return new long[]{-1, -1};
 		}
 		try {
 			long historyEndExclusive = this.storage.readNextSeq(spec.conversationDir);
@@ -322,6 +341,7 @@ final class EasyChatRequestWriter {
 				historyEndExclusive = Math.min(historyEndExclusive, spec.continueSeq.longValue() + 1);
 			}
 			long lastUser = -1;
+			long lastNonEmpty = -1;
 			for (long seq = 0; seq < historyEndExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(spec.conversationDir, seq);
 				if (header == null || this.storage.isDeleted(header)) {
@@ -332,14 +352,45 @@ final class EasyChatRequestWriter {
 				if (resolvedVariant < 0) {
 					continue;
 				}
-				if (this.isUserFragment(spec.conversationDir, seq, resolvedVariant)) {
-					lastUser = seq;
+				EasyChatStorage.FragmentSlice slice = this.storage.getVariantSlice(spec.conversationDir, seq, resolvedVariant);
+				if (slice != null && slice.length > 0) {
+					lastNonEmpty = seq;
+					if (this.isUserFragment(spec.conversationDir, seq, resolvedVariant)) {
+						lastUser = seq;
+					}
 				}
 			}
-			return lastUser;
+			return new long[]{lastUser, lastNonEmpty};
 		} catch (Exception e) {
-			return -1;
+			return new long[]{-1, -1};
 		}
+	}
+
+	/**
+	 * 世界书注入：读取 fragment 原始 payload，把 worldInfo 前缀拼接到 content 之前，
+	 * 其余字段（images/audios/videos/tool_calls 等附件）原样保留。
+	 * 单条 fragment 读入内存无 OOM 风险（原注释警告的是回放全历史逐条 parse）。
+	 */
+	private JsonObject injectWorldInfoIntoFragment(Path dir, long seq, int variantIndex, String worldInfoPrefix) {
+		JsonObject parsed = null;
+		try {
+			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
+			if (payload != null && payload.length > 0) {
+				parsed = JsonUtil.tryParseObject(payload);
+			}
+		} catch (Exception ignore) {
+			parsed = null;
+		}
+		if (parsed == null) {
+			parsed = new JsonObject();
+			parsed.addProperty("role", "user");
+		}
+		String original = JsonUtil.getJsonString(parsed, "content", "");
+		String merged = (worldInfoPrefix == null || worldInfoPrefix.isBlank())
+				? original
+				: worldInfoPrefix + "\n" + (original == null ? "" : original);
+		parsed.addProperty("content", merged);
+		return parsed;
 	}
 
 	/** 读取 fragment 的 content 字段（用于世界书注入时拼接内容） */
