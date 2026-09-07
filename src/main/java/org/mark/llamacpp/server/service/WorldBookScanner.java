@@ -68,9 +68,11 @@ public final class WorldBookScanner {
                 if (entry.getContent() == null || entry.getContent().isBlank()) {
                     continue;
                 }
-                // 去重：同内容不重复追加
+                // 去重：按完整内容精确相等去重（不能用 contains——A 内容"城堡"是
+                // B 内容"城堡里有宝藏"的子串时，contains 会误判 B 已存在，
+                // 导致 B 的独特关键词不参与下一轮扫描，链式激活断裂）
                 String content = entry.getContent();
-                boolean already = recursionTexts.stream().anyMatch(t -> t != null && t.contains(content));
+                boolean already = recursionTexts.stream().anyMatch(t -> t != null && t.equals(content));
                 if (!already) {
                     recursionTexts.add(content);
                     added = true;
@@ -202,8 +204,8 @@ public final class WorldBookScanner {
         if (key == null || key.isEmpty() || text == null || text.isEmpty()) {
             return false;
         }
-        // 1) 正则 key：/pattern/flags
-        Pattern regex = parseRegexKey(key);
+        // 1) 正则 key：/pattern/flags（编译结果缓存，防每条消息重复 compile）
+        Pattern regex = getOrCompileRegexKey(key);
         if (regex != null) {
             return regex.matcher(text).find();
         }
@@ -223,8 +225,29 @@ public final class WorldBookScanner {
         return entry.isCaseSensitive() ? text.contains(key) : text.toLowerCase().contains(key.toLowerCase());
     }
 
-    /** 解析 {@code /pattern/flags} 格式的正则 key；非正则格式返回 null */
-    private static Pattern parseRegexKey(String key) {
+    /** 解析 {@code /pattern/flags} 格式的正则 key；非正则格式返回 null。编译结果按 key 缓存 */
+    private static Pattern getOrCompileRegexKey(String key) {
+        if (key == null || key.length() < 3 || key.charAt(0) != '/') {
+            return null;
+        }
+        // 无 entry 上下文时（仅被 parseRegexKey 测试调用）退化为即时编译
+        Pattern cached = cachedRegexPatterns.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Pattern compiled = parseRegexKeyInternal(key);
+        if (compiled != null && cachedRegexPatterns.size() < MAX_CACHED_REGEX_KEYS) {
+            cachedRegexPatterns.putIfAbsent(key, compiled);
+        }
+        return compiled;
+    }
+
+    /** 缓存：同 key 只编译一次（世界书条目 key 集合通常很小且固定） */
+    private static final java.util.concurrent.ConcurrentHashMap<String, Pattern> cachedRegexPatterns = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 缓存容量上限：防恶意/异常输入导致无限增长 */
+    private static final int MAX_CACHED_REGEX_KEYS = 5000;
+
+    private static Pattern parseRegexKeyInternal(String key) {
         if (key == null || key.length() < 3 || key.charAt(0) != '/') {
             return null;
         }

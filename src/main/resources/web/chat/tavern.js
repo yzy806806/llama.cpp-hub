@@ -668,7 +668,9 @@
     // 作者注记（Author's Note）
     const authorNoteInput = document.getElementById('tavernAuthorNoteInput');
     if (authorNoteInput) {
-      authorNoteInput.addEventListener('change', () => {
+      // 用 input 事件而非 change：用户输入完直接点发送（输入框仍聚焦）时
+      // change 不会触发 → 注记丢失。input 每次按键都同步到 card。
+      authorNoteInput.addEventListener('input', () => {
         const assistant = getCurrentAssistant();
         if (!assistant) return;
         if (!assistant.card) assistant.card = {};

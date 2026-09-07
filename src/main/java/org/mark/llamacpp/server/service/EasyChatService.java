@@ -2610,6 +2610,10 @@ public class EasyChatService {
 		return TavernTemplateResolver.resolve(text, charName, "用户", null);
 	}
 
+	/** 全局世界书缓存：避免每次聊天请求都全量读 state.json（默认场景无全局书时也省一次 IO） */
+	private volatile String cachedGlobalWorldBook;
+	private volatile long cachedGlobalWorldBookMtime = -1;
+
 	/** 读 state 级全局世界书（assistants 数组之外的顶层 globalWorldBook 字段） */
 	private String readGlobalWorldBook() {
 		try {
@@ -2617,18 +2621,26 @@ public class EasyChatService {
 				if (stateFile == null || !Files.isRegularFile(stateFile)) {
 					continue;
 				}
+				// 缓存：mtime 未变则复用上次结果（state.json 由前端 sync 写入，mtime 会更新）
+				long mtime = Files.getLastModifiedTime(stateFile).toMillis();
+				if (mtime == this.cachedGlobalWorldBookMtime) {
+					return this.cachedGlobalWorldBook;
+				}
 				JsonObject state = JsonUtil.fromJson(Files.readString(stateFile, StandardCharsets.UTF_8), JsonObject.class);
-				if (state == null || !state.has("globalWorldBook")) {
-					continue;
+				String result = null;
+				if (state != null && state.has("globalWorldBook")) {
+					JsonElement wbEl = state.get("globalWorldBook");
+					if (wbEl != null && !wbEl.isJsonNull()) {
+						if (wbEl.isJsonPrimitive() && wbEl.getAsJsonPrimitive().isString()) {
+							result = wbEl.getAsString();
+						} else {
+							result = JsonUtil.toJson(wbEl);
+						}
+					}
 				}
-				JsonElement wbEl = state.get("globalWorldBook");
-				if (wbEl == null || wbEl.isJsonNull()) {
-					continue;
-				}
-				if (wbEl.isJsonPrimitive() && wbEl.getAsJsonPrimitive().isString()) {
-					return wbEl.getAsString();
-				}
-				return JsonUtil.toJson(wbEl);
+				this.cachedGlobalWorldBook = result;
+				this.cachedGlobalWorldBookMtime = mtime;
+				return result;
 			}
 		} catch (Exception e) {
 			logger.warn("[Tavern] 读取全局世界书失败", e);

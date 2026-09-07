@@ -321,5 +321,18 @@ public class TavernLogicTest {
         loop2.setContent("y 和 x");
         List<WorldBookEntry> act3 = WorldBookScanner.scan(List.of(loop, loop2), List.of("x 出现"));
         check("防环: 互引用不死循环且有限激活", act3.size() <= 2);
+        // 子串去重回归：A 内容"城堡"是 B 内容"城堡里有宝藏"的子串时，
+        // B 必须仍能参与下一轮（修复：contains 去重改为 equals 去重）
+        WorldBookEntry subA = new WorldBookEntry();
+        subA.setUid("s1");
+        subA.setKeys(List.of("门口"));
+        subA.setContent("城堡");
+        WorldBookEntry subB = new WorldBookEntry();
+        subB.setUid("s2");
+        subB.setKeys(List.of("城堡"));
+        subB.setContent("城堡里住着龙");
+        // 消息只含"门口" → subA 命中，其内容"城堡"递归带出 subB（key=城堡）
+        List<WorldBookEntry> act4 = WorldBookScanner.scan(List.of(subA, subB), List.of("我走到门口"));
+        check("递归: 子串内容不阻断链式激活", act4.size() == 2);
     }
 }
