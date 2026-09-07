@@ -2288,6 +2288,8 @@ public class EasyChatService {
 		}
 		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
 		String assistantName = JsonUtil.getJsonString(body, "assistantName", "");
+		// 预览用可选参数：当前待发草稿（模拟"user 消息已写盘"，对齐真实发送路径的世界书激活）
+		String previewMessage = JsonUtil.getJsonString(body, "message", "");
 
 		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
 				? this.resolveAssistantTavern(assistantName)
@@ -2299,11 +2301,34 @@ public class EasyChatService {
 			sections.add(buildPreviewSection("system", "system", tavern.systemPrompt, "角色卡/系统提示词"));
 		}
 		// 2) 世界书 + Author's Note + post-history（新消息段注入前缀）
+		JsonArray activatedDetail = new JsonArray();
 		if (conversationId != null && !conversationId.isBlank()) {
 			try {
-				String worldInfoPrefix = this.buildWorldInfoPrefix(tavern, conversationId, false);
-				if (worldInfoPrefix != null && !worldInfoPrefix.isBlank()) {
-					sections.add(buildPreviewSection("world_info", "user", worldInfoPrefix, "世界书/作者注记/对话后指令"));
+				WorldInfoBuildResult wbResult = this.buildWorldInfoPrefixDetail(tavern, conversationId, false,
+						previewMessage == null || previewMessage.isBlank() ? null : previewMessage);
+				if (wbResult != null) {
+					if (wbResult.prefix != null && !wbResult.prefix.isBlank()) {
+						sections.add(buildPreviewSection("world_info", "user", wbResult.prefix, "世界书/作者注记/对话后指令"));
+					}
+					// 激活明细：uid/order/matchedKey/matchedMessageIndex/source/内容预览/injected
+					for (Map<String, Object> detail : wbResult.activated) {
+						JsonObject d = new JsonObject();
+						for (Map.Entry<String, Object> e : detail.entrySet()) {
+							Object v = e.getValue();
+							if (v == null) {
+								d.add(e.getKey(), com.google.gson.JsonNull.INSTANCE);
+							} else if (v instanceof String) {
+								d.addProperty(e.getKey(), (String) v);
+							} else if (v instanceof Number) {
+								d.addProperty(e.getKey(), (Number) v);
+							} else if (v instanceof Boolean) {
+								d.addProperty(e.getKey(), (Boolean) v);
+							} else {
+								d.addProperty(e.getKey(), String.valueOf(v));
+							}
+						}
+						activatedDetail.add(d);
+					}
 				}
 			} catch (Exception e) {
 				logger.warn("[Tavern] prompt 预览世界书组装失败", e);
@@ -2326,6 +2351,7 @@ public class EasyChatService {
 		data.put("sections", sections);
 		data.put("totalTokens", total);
 		data.put("charName", tavern.charName);
+		data.put("activated", activatedDetail);
 		LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
 	}
 
@@ -2532,11 +2558,35 @@ public class EasyChatService {
 	 * @return 注入前缀文本；无世界书 / 无激活条目返回 null
 	 */
 	private String buildWorldInfoPrefix(AssistantTavernContext tavernContext, String conversationId, boolean ephemeral) {
+		WorldInfoBuildResult result = buildWorldInfoPrefixDetail(tavernContext, conversationId, ephemeral, null);
+		return result == null ? null : result.prefix;
+	}
+
+	/** 世界书前缀组装结果：注入前缀 + 激活明细（Prompt Debugger 可视化用） */
+	static final class WorldInfoBuildResult {
+		final String prefix;
+		final List<Map<String, Object>> activated;
+		WorldInfoBuildResult(String prefix, List<Map<String, Object>> activated) {
+			this.prefix = prefix;
+			this.activated = activated;
+		}
+	}
+
+	/**
+	 * 组装世界书/作者注记/对话后指令前缀，并返回激活明细。
+	 *
+	 * @param extraMessage 预览用可选参数：模拟"最新 user 消息已写盘"，
+	 *                     拼进扫描窗口末尾（真实发送路径 user 消息先写盘再组装，
+	 *                     预览时未写盘 → 窗口少一条 → 传草稿可对齐激活结果）
+	 */
+	private WorldInfoBuildResult buildWorldInfoPrefixDetail(AssistantTavernContext tavernContext, String conversationId,
+			boolean ephemeral, String extraMessage) {
 		if (tavernContext == null) {
 			return null;
 		}
 		String charName = tavernContext.charName;
 		StringBuilder sb = new StringBuilder();
+		List<Map<String, Object>> activatedDetail = new ArrayList<>();
 
 		// 1) Author's Note：全局提醒（随世界书通道注入新消息段，Qwen3.6 安全）
 		String authorNote = tavernContext.card != null ? tavernContext.card.getAuthorNote() : null;
@@ -2555,26 +2605,29 @@ public class EasyChatService {
 
 		// 3) 世界书激活条目（全局书 + 角色书合并扫描）
 		if (!ephemeral) {
-			List<WorldBookEntry> activated = new ArrayList<>();
 			// 全局世界书（state 级，不分角色）：与角色书同语义，合入扫描
 			String globalBook = this.readGlobalWorldBook();
 			if (globalBook != null && !globalBook.isBlank()) {
 				List<WorldBookEntry> globalEntries = WorldBookParser.parse(globalBook);
-				List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
+				List<String> recentMessages = this.collectScanWindow(conversationId, extraMessage);
 				if (!recentMessages.isEmpty() && !globalEntries.isEmpty()) {
-					activated.addAll(WorldBookScanner.scan(globalEntries, recentMessages));
+					for (WorldBookScanner.ScanHit hit : WorldBookScanner.scanDetailed(globalEntries, recentMessages)) {
+						activatedDetail.add(hitToDetail(hit));
+					}
 				}
 			}
 			// 角色世界书（assistant.worldBook）
 			if (tavernContext.worldBookJson != null && !tavernContext.worldBookJson.isBlank()) {
 				List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
-				List<String> recentMessages = this.collectRecentFragmentTexts(conversationId, 16);
+				List<String> recentMessages = this.collectScanWindow(conversationId, extraMessage);
 				if (!recentMessages.isEmpty() && !entries.isEmpty()) {
-					activated.addAll(WorldBookScanner.scan(entries, recentMessages));
+					for (WorldBookScanner.ScanHit hit : WorldBookScanner.scanDetailed(entries, recentMessages)) {
+						activatedDetail.add(hitToDetail(hit));
+					}
 				}
 			}
-			if (!activated.isEmpty()) {
-				activated.sort(Comparator.comparingInt(WorldBookEntry::getOrder));
+			if (!activatedDetail.isEmpty()) {
+				activatedDetail.sort(Comparator.comparingInt(m -> (Integer) m.get("order")));
 				if (sb.length() > 0) {
 					sb.append("\n\n");
 				}
@@ -2583,20 +2636,49 @@ public class EasyChatService {
 				int budget = WORLD_INFO_TOKEN_BUDGET;
 				int used = 0;
 				int injected = 0;
-				for (WorldBookEntry entry : activated) {
-					String content = resolveTavernText(entry.formatContent(), charName);
+				for (Map<String, Object> detail : activatedDetail) {
+					// 宏替换：{{char}}/{{user}}/{{persona}}（detail 里保留原始 content，prefix 用替换版）
+					String content = resolveTavernText((String) detail.get("content"), charName);
 					int tokens = TavernAuxRequests.estimateTokens(content);
 					if (used + tokens > budget) {
-						break;
+						detail.put("injected", false);
+						continue;
 					}
 					sb.append("\n\n").append(content);
 					used += tokens;
 					injected++;
+					detail.put("injected", true);
 				}
 				logger.info("[Tavern] 世界书注入 {} 条 conversation={} (budget {}/{})", injected, conversationId, used, budget);
 			}
 		}
-		return sb.length() > 0 ? sb.toString() : null;
+		String prefix = sb.length() > 0 ? sb.toString() : null;
+		return new WorldInfoBuildResult(prefix, activatedDetail);
+	}
+
+	/** 扫描窗口：历史 + 可选 extraMessage（模拟最新 user 消息，预览用） */
+	private List<String> collectScanWindow(String conversationId, String extraMessage) {
+		List<String> window = new ArrayList<>(this.collectRecentFragmentTexts(conversationId, 16));
+		if (extraMessage != null && !extraMessage.isBlank()) {
+			window.add(extraMessage);
+		}
+		return window;
+	}
+
+	/** ScanHit → 前端可读明细（uid/order/key/命中消息/来源/内容预览） */
+	private static Map<String, Object> hitToDetail(WorldBookScanner.ScanHit hit) {
+		Map<String, Object> detail = new HashMap<>();
+		WorldBookEntry entry = hit.entry;
+		detail.put("uid", entry.getUid());
+		detail.put("order", entry.getOrder());
+		detail.put("matchedKey", hit.matchedKey);
+		detail.put("matchedMessageIndex", hit.matchedMessageIndex);
+		detail.put("source", hit.source);
+		String content = entry.formatContent();
+		detail.put("content", content);
+		detail.put("contentPreview", content.length() > 80 ? content.substring(0, 80) + "…" : content);
+		detail.put("injected", false);
+		return detail;
 	}
 
 	/** 世界书注入 token 预算上限（对标酒馆 world_info_budget，防大书撑爆上下文） */

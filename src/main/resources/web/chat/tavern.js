@@ -552,7 +552,7 @@
 
   /* ---- Prompt 预览（Debugger） ---- */
 
-  async function fetchPromptPreview() {
+  async function fetchPromptPreview(includeDraft) {
     const conversation = getCurrentConversation();
     const assistant = getCurrentAssistant();
     if (!conversation) throw new Error('没有当前会话');
@@ -560,7 +560,52 @@
       conversationId: conversation.id,
       assistantName: assistant && assistant.name ? assistant.name : ''
     };
+    // 带上当前草稿：模拟"user 消息已写盘"，让世界书激活结果与真实发送一致（对齐实发）
+    if (includeDraft) {
+      try {
+        const draftInput = document.getElementById('promptInput');
+        const draft = draftInput ? draftInput.value.trim() : '';
+        if (draft) body.message = draft;
+      } catch (e) {
+        // ignore
+      }
+    }
     return apiPost('/api/chat/prompt-preview', body);
+  }
+
+  /** 渲染世界书激活明细（面板 + 侧栏共用） */
+  function renderActivatedEntries(container, activated) {
+    if (!container) return;
+    if (!Array.isArray(activated) || activated.length === 0) {
+      container.textContent = '（无世界书条目激活）';
+      return;
+    }
+    const lines = activated.map((entry, i) => {
+      const uid = entry.uid || ('#' + (i + 1));
+      const key = entry.matchedKey ? 'key=' + entry.matchedKey : '';
+      const where = entry.matchedMessageIndex >= 0 ? ('#' + (entry.matchedMessageIndex + 1) + ' 消息命中') : '';
+      const source = entry.source || '';
+      const injected = entry.injected ? '' : ' ⚠️未注入(budget)';
+      const preview = entry.contentPreview || '';
+      return '· [' + uid + '] ' + (key ? key + ' · ' : '') + (where ? where + ' · ' : '') + source + injected + '\n  ' + preview;
+    });
+    lines.push('（合计 ' + activated.length + ' 条激活）');
+    container.textContent = lines.join('\n');
+  }
+
+  /** 侧栏激活状态：发送完成后拉一次 preview（带刚发的消息）刷新显示 */
+  async function refreshActivationBox() {
+    const box = document.getElementById('worldBookActivationBox');
+    const list = document.getElementById('worldBookActivationList');
+    if (!box || !list) return;
+    try {
+      const result = await fetchPromptPreview(true);
+      const activated = Array.isArray(result?.data?.activated) ? result.data.activated : [];
+      renderActivatedEntries(list, activated);
+      box.style.display = activated.length > 0 ? '' : 'none';
+    } catch (e) {
+      box.style.display = 'none';
+    }
   }
 
   /* ---- UI 绑定 ---- */
@@ -734,10 +779,11 @@
     // Prompt 预览（Debugger）
     const previewBtn = document.getElementById('tavernPromptPreviewBtn');
     const previewPanel = document.getElementById('tavernPromptPreviewPanel');
+    const previewActivated = document.getElementById('tavernPromptPreviewActivated');
     if (previewBtn && previewPanel) {
       previewBtn.addEventListener('click', async () => {
         try {
-          const result = await fetchPromptPreview();
+          const result = await fetchPromptPreview(true);
           const sections = Array.isArray(result?.data?.sections) ? result.data.sections : [];
           const total = result?.data?.totalTokens || 0;
           if (!sections.length) {
@@ -752,10 +798,22 @@
           lines.push('── 合计: ' + total + ' tokens ──');
           previewPanel.textContent = lines.join('\n\n');
           previewPanel.classList.remove('hidden');
+          // 世界书激活明细（对齐实发：预览带草稿后，激活结果与真实发送一致）
+          if (previewActivated) {
+            renderActivatedEntries(previewActivated, result?.data?.activated);
+          }
         } catch (e) {
           previewPanel.textContent = '预览失败: ' + (e.message || e);
           previewPanel.classList.remove('hidden');
         }
+      });
+    }
+    // 侧栏激活状态关闭按钮
+    const activationClose = document.getElementById('worldBookActivationClose');
+    const activationBox = document.getElementById('worldBookActivationBox');
+    if (activationClose && activationBox) {
+      activationClose.addEventListener('click', () => {
+        activationBox.style.display = 'none';
       });
     }
   }
@@ -855,6 +913,8 @@
     getGreetingOptions,
     getSelectedGreetingIndex,
     setSelectedGreetingIndex,
-    fetchPromptPreview
+    fetchPromptPreview,
+    refreshActivationBox,
+    renderActivatedEntries
   };
 })();

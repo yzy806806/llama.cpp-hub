@@ -48,6 +48,14 @@
 
       <div class="sidebar-label" data-i18n="page.chat.main.sidebar.conversation_list">会话列表</div>
       <ul id="conversationList" class="conversation-list"></ul>
+      <!-- 世界书激活可视化：发送后自动更新，显示当前会话激活条目 -->
+      <div id="worldBookActivationBox" class="worldbook-activation-box" style="display:none;margin:10px 12px 0;padding:8px 10px;border:1px solid var(--border-color,#444);border-radius:8px;font-size:12px;line-height:1.6;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <span id="worldBookActivationTitle" style="font-weight:600;">世界书激活</span>
+          <button id="worldBookActivationClose" type="button" style="background:none;border:none;color:inherit;cursor:pointer;font-size:12px;">×</button>
+        </div>
+        <div id="worldBookActivationList" style="color:var(--text-secondary,#aaa);word-break:break-all;"></div>
+      </div>
     </aside>
 
     <main class="main">
@@ -457,6 +465,7 @@
                 <p class="settings-field-desc" data-i18n="page.chat.main.settings.tavern.prompt_preview_desc">查看发送给模型的实际提示词分段与 token 占用，排查角色卡/世界书是否生效</p>
                 <button id="tavernPromptPreviewBtn" class="ghost-button" type="button" data-i18n="page.chat.main.settings.tavern.prompt_preview_btn">查看 Prompt 分段</button>
                 <div id="tavernPromptPreviewPanel" class="hidden" style="margin-top:8px;max-height:300px;overflow:auto;border:1px solid var(--border-color,#444);border-radius:6px;padding:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;"></div>
+                <div id="tavernPromptPreviewActivated" style="margin-top:8px;font-size:12px;line-height:1.6;color:var(--text-secondary,#aaa);white-space:pre-wrap;word-break:break-all;"></div>
               </div>
               <div class="settings-field">
                 <div class="settings-field-header">
@@ -8108,6 +8117,14 @@
         renderConversationList();
         syncConversationMeta();
         updateMessageActionStates();
+        // 发送完成 → 侧栏世界书激活状态刷新
+        if (stateAccessor && typeof stateAccessor.onMessageComplete === 'function') {
+          try {
+            stateAccessor.onMessageComplete();
+          } catch (e) {
+            // ignore
+          }
+        }
         // 酒馆扩展：回复完成后自动触发上下文压缩 + 回复选项
         if (window.Tavern) {
           try {
@@ -11519,6 +11536,16 @@ function confirmAudioRecording() {
               // ignore
             }
             renderMessages();
+          },
+          onMessageComplete: () => {
+            // 发送完成后刷新侧栏世界书激活状态（一次 preview 请求，两用）
+            try {
+              if (window.Tavern && typeof window.Tavern.refreshActivationBox === 'function') {
+                window.Tavern.refreshActivationBox();
+              }
+            } catch (e) {
+              // ignore
+            }
           },
           persist: () => persistState({ immediate: true }),
           onGlobalWorldBookChanged: (text) => {

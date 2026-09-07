@@ -32,6 +32,7 @@ public class TavernLogicTest {
         testWorldBookMatchWholeWords();
         testWorldBookRegexKey();
         testWorldBookRecursion();
+        testScanDetailed();
         System.out.println("\n===== 结果: " + passed + " 通过, " + failed + " 失败 =====");
         if (failed > 0) {
             System.exit(1);
@@ -334,5 +335,54 @@ public class TavernLogicTest {
         // 消息只含"门口" → subA 命中，其内容"城堡"递归带出 subB（key=城堡）
         List<WorldBookEntry> act4 = WorldBookScanner.scan(List.of(subA, subB), List.of("我走到门口"));
         check("递归: 子串内容不阻断链式激活", act4.size() == 2);
+    }
+
+    /** scanDetailed 命中明细（Prompt Debugger 可视化） */
+    private static void testScanDetailed() {
+        System.out.println("== scanDetailed 明细 ==");
+        // 普通命中：matchedKey + matchedMessageIndex
+        WorldBookEntry dragon = new WorldBookEntry();
+        dragon.setUid("d1");
+        dragon.setKeys(List.of("dragon"));
+        dragon.setContent("龙族资料");
+        dragon.setOrder(1);
+        List<WorldBookScanner.ScanHit> hits = WorldBookScanner.scanDetailed(List.of(dragon),
+                List.of("hello", "a dragon appears", "next"));
+        check("普通命中: 1 条", hits.size() == 1);
+        check("普通命中: matchedKey=dragon", "dragon".equals(hits.get(0).matchedKey));
+        check("普通命中: index=1（第 2 条消息）", hits.get(0).matchedMessageIndex == 1);
+        check("普通命中: source=history", "history".equals(hits.get(0).source));
+
+        // constant 条目：无 key 无 index
+        WorldBookEntry constant = new WorldBookEntry();
+        constant.setUid("c1");
+        constant.setConstant(true);
+        constant.setContent("世界观铁律");
+        constant.setOrder(0);
+        List<WorldBookScanner.ScanHit> cHits = WorldBookScanner.scanDetailed(List.of(constant), List.of("任意消息"));
+        check("constant: 无条件激活", cHits.size() == 1);
+        check("constant: matchedKey=null", cHits.get(0).matchedKey == null);
+        check("constant: index=-1", cHits.get(0).matchedMessageIndex == -1);
+        check("constant: source=constant", "constant".equals(cHits.get(0).source));
+
+        // 递归轮激活：source=recursion, index=-1
+        WorldBookEntry a = new WorldBookEntry();
+        a.setUid("a1");
+        a.setKeys(List.of("城堡"));
+        a.setContent("城堡里有宝藏");
+        a.setOrder(1);
+        WorldBookEntry b = new WorldBookEntry();
+        b.setUid("b1");
+        b.setKeys(List.of("宝藏"));
+        b.setContent("宝藏是圣杯");
+        b.setOrder(2);
+        List<WorldBookScanner.ScanHit> rHits = WorldBookScanner.scanDetailed(List.of(a, b), List.of("我进入了城堡"));
+        check("递归: 2 条激活", rHits.size() == 2);
+        boolean foundRecursion = rHits.stream().anyMatch(h -> "recursion".equals(h.source) && h.matchedMessageIndex == -1);
+        check("递归: 递归轮条目 source=recursion & index=-1", foundRecursion);
+
+        // scan 与 scanDetailed 激活集合一致（委托回归）
+        List<WorldBookEntry> fromScan = WorldBookScanner.scan(List.of(a, b), List.of("我进入了城堡"));
+        check("委托: scan 与 scanDetailed 集合一致", fromScan.size() == rHits.size());
     }
 }

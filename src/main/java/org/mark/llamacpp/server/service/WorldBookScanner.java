@@ -48,13 +48,46 @@ public final class WorldBookScanner {
      * @return 激活条目，按 order 升序
      */
     public static List<WorldBookEntry> scan(List<WorldBookEntry> entries, List<String> recentMessages) {
-        List<WorldBookEntry> activated = new ArrayList<>();
-        if (entries == null || entries.isEmpty()) {
-            return activated;
+        List<ScanHit> hits = scanDetailed(entries, recentMessages);
+        List<WorldBookEntry> activated = new ArrayList<>(hits.size());
+        for (ScanHit hit : hits) {
+            activated.add(hit.entry);
         }
+        return activated;
+    }
+
+    /** 扫描结果明细：条目 + 命中的 key + 命中消息索引（-1 = 无，递归/常驻条目） + 来源 */
+    public static final class ScanHit {
+        public final WorldBookEntry entry;
+        public final String matchedKey;
+        public final int matchedMessageIndex;
+        public final String source;
+
+        public ScanHit(WorldBookEntry entry, String matchedKey, int matchedMessageIndex, String source) {
+            this.entry = entry;
+            this.matchedKey = matchedKey;
+            this.matchedMessageIndex = matchedMessageIndex;
+            this.source = source;
+        }
+    }
+
+    /**
+     * 扫描并返回激活明细（Prompt Debugger 可视化用）：
+     * 每条激活记录带「哪个 key 命中、命中第几条消息、来源（history/recursion/constant）」。
+     * 激活集合与 {@link #scan} 完全一致，仅附加定位信息。
+     */
+    public static List<ScanHit> scanDetailed(List<WorldBookEntry> entries, List<String> recentMessages) {
+        List<ScanHit> hits = new ArrayList<>();
+        if (entries == null || entries.isEmpty()) {
+            return hits;
+        }
+        List<WorldBookEntry> activated = new ArrayList<>();
         // 第一轮：普通关键词扫描
         List<WorldBookEntry> firstRound = scanOnce(entries, recentMessages, activated, null);
         activated.addAll(firstRound);
+        for (WorldBookEntry entry : firstRound) {
+            hits.add(buildHit(entry, recentMessages));
+        }
         // 递归轮：激活条目内容作为扫描文本参与下一轮（酒馆"关联网"语义）
         // 受 excludeRecursion（该条目内容不触发其他条目）与 preventRecursion（其他条目不可被它触发）控制
         List<String> recursionTexts = new ArrayList<>(recentMessages);
@@ -86,13 +119,51 @@ public final class WorldBookScanner {
                 break;
             }
             activated.addAll(round);
+            for (WorldBookEntry entry : round) {
+                hits.add(new ScanHit(entry, null, -1, "recursion"));
+            }
             logger.info("[WorldBook] 递归第 {} 轮激活 {} 条", step + 1, round.size());
         }
-        activated.sort(Comparator.comparingInt(WorldBookEntry::getOrder));
-        if (!activated.isEmpty()) {
-            logger.info("[WorldBook] 激活 {} / {} 条", activated.size(), entries.size());
+        hits.sort(Comparator.comparingInt(hit -> hit.entry.getOrder()));
+        if (!hits.isEmpty()) {
+            logger.info("[WorldBook] 激活 {} / {} 条", hits.size(), entries.size());
         }
-        return activated;
+        return hits;
+    }
+
+    /** 第一轮命中定位：找出主 key 命中的消息索引（0-based，按传入消息列表） */
+    private static ScanHit buildHit(WorldBookEntry entry, List<String> recentMessages) {
+        if (entry.isConstant()) {
+            return new ScanHit(entry, null, -1, "constant");
+        }
+        List<String> keys = entry.getKeys();
+        if (keys == null || keys.isEmpty()) {
+            return new ScanHit(entry, null, -1, "history");
+        }
+        List<String> window = applyDepth(entry.getDepth(), recentMessages);
+        int offset = recentMessages.size() - window.size();
+        String matchedKey = null;
+        int matchedIndex = -1;
+        for (int i = 0; i < window.size(); i++) {
+            String text = window.get(i);
+            if (text == null || text.isEmpty()) {
+                continue;
+            }
+            for (String key : keys) {
+                if (key == null || key.isEmpty()) {
+                    continue;
+                }
+                if (matchKey(key, text, entry)) {
+                    matchedKey = key;
+                    matchedIndex = offset + i;
+                    break;
+                }
+            }
+            if (matchedKey != null) {
+                break;
+            }
+        }
+        return new ScanHit(entry, matchedKey, matchedIndex, "history");
     }
 
     /**
