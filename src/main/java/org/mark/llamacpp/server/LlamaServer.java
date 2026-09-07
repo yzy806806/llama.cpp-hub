@@ -366,9 +366,10 @@ public class LlamaServer {
 	private static final int DEFAULT_HTTP_ONLY_PORT = 8081;
 
 	/**
-	 * 	默认监听地址：仅回环，拒绝所有非本机客户端。
+	 * 	默认监听地址：0.0.0.0 监听所有网卡（允许局域网访问 WebUI）。
+	 * 	如需仅回环，在配置中显式设置 127.0.0.1。
 	 */
-	private static final String DEFAULT_LISTEN_ADDRESS = "127.0.0.1";
+	private static final String DEFAULT_LISTEN_ADDRESS = "0.0.0.0";
 
 	private static final int DEFAULT_MCP_SERVER_PORT = 8075;
 
