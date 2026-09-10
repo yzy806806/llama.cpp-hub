@@ -81,10 +81,6 @@ public class EasyChatController implements BaseController {
 	private static final String PATH_STREAM_CHAT = "/api/chat/stream-chat";
 	private static final String PATH_MESSAGE_UPDATE = "/api/chat/message/update";
 	private static final String PATH_GENERATE_TITLE = "/api/chat/generate-title";
-	private static final String PATH_SUGGESTIONS = "/api/chat/suggestions";
-	private static final String PATH_SUMMARIZE = "/api/chat/summarize";
-	private static final String PATH_COMPRESS = "/api/chat/compress";
-	private static final String PATH_PROMPT_PREVIEW = "/api/chat/prompt-preview";
 	private static final String PATH_AVATAR_UPLOAD = "/api/chat/avatar/upload";
 	private static final String PATH_AVATAR_GET = "/api/chat/avatar/get";
 	private static final String PATH_BACKGROUND_UPLOAD = "/api/chat/background/upload";
@@ -120,22 +116,6 @@ public class EasyChatController implements BaseController {
 		}
 		if (uri.equals(PATH_GENERATE_TITLE)) {
 			this.handleGenerateTitleRequest(ctx, request);
-			return true;
-		}
-		if (uri.equals(PATH_SUGGESTIONS)) {
-			EasyChatService.getInstance().handleSuggestions(ctx, request);
-			return true;
-		}
-		if (uri.equals(PATH_SUMMARIZE)) {
-			EasyChatService.getInstance().handleSummarize(ctx, request);
-			return true;
-		}
-		if (uri.equals(PATH_COMPRESS)) {
-			EasyChatService.getInstance().handleCompress(ctx, request);
-			return true;
-		}
-		if (uri.equals(PATH_PROMPT_PREVIEW)) {
-			EasyChatService.getInstance().handlePromptPreview(ctx, request);
 			return true;
 		}
 		if (uri.equals(PATH_AVATAR_UPLOAD)) {

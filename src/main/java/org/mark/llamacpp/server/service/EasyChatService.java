@@ -12,8 +12,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,9 +29,7 @@ import org.mark.llamacpp.server.io.NettyChunkedOutputStream;
 import org.mark.llamacpp.server.io.NettyWriteHelper;
 import org.mark.llamacpp.server.struct.ActiveRequest;
 import org.mark.llamacpp.server.struct.ApiResponse;
-import org.mark.llamacpp.server.struct.AssistantCard;
 import org.mark.llamacpp.server.struct.Timing;
-import org.mark.llamacpp.server.struct.WorldBookEntry;
 import org.mark.llamacpp.server.tools.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -272,9 +268,8 @@ public class EasyChatService {
 			int modelPort = modelTarget.port != null ? modelTarget.port.intValue() : 0;
 			boolean isRemoteNode = modelTarget.isRemoteNode;
 
-			// Resolve system prompt + tavern context (role card / world book) from synced assistant config.
-			AssistantTavernContext tavernContext = this.resolveAssistantTavern(assistantName);
-			String systemPrompt = tavernContext.systemPrompt;
+			// Resolve system prompt from synced assistant config.
+			String systemPrompt = this.resolveAssistantSystemPrompt(assistantName);
 
 			// Parse regenerate headers
 			Long regenerateSeq = null;
@@ -482,7 +477,6 @@ public class EasyChatService {
 			final String finalNodeId = nodeId;
 			final boolean finalIsRemoteNode = isRemoteNode;
 			final String finalSystemPrompt = systemPrompt;
-			final AssistantTavernContext finalTavernContext = tavernContext;
 			final Path finalConvDir = convDir;
 			final byte[] finalToolsBytes = toolsBytes;
 			final JsonObject finalSamplingParams = samplingParams;
@@ -562,51 +556,16 @@ public class EasyChatService {
 						trackerRequestId = ModelRequestTracker.getInstance().createRequest(finalModelId, "easy-chat");
 					}
 
-					// 世界书扫描：读取会话历史文本，按关键词激活条目，拼成注入前缀
-					// （注入到最新 user 消息前，新消息段，缓存友好）
-					String worldInfoPrefix = null;
-					try {
-						worldInfoPrefix = this.buildWorldInfoPrefix(finalTavernContext, conversationId, finalIsEphemeral);
-					} catch (Exception we) {
-						logger.warn("[Tavern] 世界书扫描失败，跳过注入 conversation={}", conversationId, we);
-					}
-					// 开场白：新会话时 first_mes 作为首条 assistant 消息（仅在历史为空时由 writer 注入）。
-					// 宏替换 {{char}}/{{user}}；若前端指定了 alternate greeting 序号（X-Tavern-Greeting header），
-					// 则改用对应备选开场白（酒馆新聊天可挑开场白语义）
-					String firstMessage = null;
-					if (finalTavernContext != null && finalTavernContext.card != null) {
-						String greetingRaw = null;
-						int greetingIndex = -1;
-						try {
-							String gh = request.headers().get("X-Tavern-Greeting");
-							if (gh != null && !gh.isBlank()) {
-								greetingIndex = Integer.parseInt(gh.trim());
-							}
-						} catch (Exception ignore) {
-							greetingIndex = -1;
-						}
-						if (greetingIndex >= 0 && finalTavernContext.card.getAlternateGreetings() != null
-								&& greetingIndex < finalTavernContext.card.getAlternateGreetings().size()) {
-							greetingRaw = finalTavernContext.card.getAlternateGreetings().get(greetingIndex);
-						} else {
-							greetingRaw = finalTavernContext.card.getFirstMes();
-						}
-						if (greetingRaw != null && !greetingRaw.isBlank()) {
-							firstMessage = this.resolveTavernText(greetingRaw, finalTavernContext.charName);
-						}
-					}
-
 					if (finalIsRemoteNode) {
 						this.handleRemoteNodeRequest(ctx, conversationId, finalNodeId, finalModelId, finalSystemPrompt,
-								worldInfoPrefix, firstMessage, finalConvDir, finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
+								finalConvDir, finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
 								finalContinueSeq, finalTransientBodyBytes, finalTransientBodyFile, finalIsEphemeral,
 								finalRequestStream, accumulator);
 					} else {
 						connection = this.openTrackedConnection(ctx, finalModelId, finalModelPort);
 
 						// Stream request body to llama.cpp
-						this.writeRequestBody(connection, conversationId, finalModelId, finalSystemPrompt,
-								worldInfoPrefix, firstMessage, finalConvDir,
+						this.writeRequestBody(connection, conversationId, finalModelId, finalSystemPrompt, finalConvDir,
 								finalToolsBytes, finalSamplingParams, finalVariants, finalRegenerateSeq,
 								finalContinueSeq, finalTransientBodyBytes, finalTransientBodyFile, finalIsEphemeral,
 								finalRequestStream);
@@ -1499,7 +1458,7 @@ public class EasyChatService {
 	 * @throws IOException
 	 */
 	private void writeRequestBody(HttpURLConnection conn, String conversationId, String modelId, String systemPrompt,
-			String worldInfoPrefix, String firstMessage, Path convDir, byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
+			Path convDir, byte[] toolsBytes, JsonObject samplingParams, Map<Long, Integer> variants, Long regenerateSeq,
 			Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile, boolean skipHistory,
 			boolean stream) throws IOException {
 		OutputStream logStream = this.createRequestLogStream(conversationId, modelId);
@@ -1509,7 +1468,7 @@ public class EasyChatService {
 			this.requestWriter.writeRequestBody(os,
 					new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes, samplingParams,
 							false, variants, regenerateSeq, continueSeq, transientUserMessageBytes,
-							transientUserMessageFile, skipHistory, stream, worldInfoPrefix, firstMessage));
+							transientUserMessageFile, skipHistory, stream));
 		} finally {
 			if (logStream != null) {
 				logStream.close();
@@ -2096,681 +2055,20 @@ public class EasyChatService {
 		}
 	}
 
-	/* ---- Tavern: suggestions (CYOA) ---- */
-
-	/**
-	 * 生成回复选项（CYOA 风格）。
-	 * <p>
-	 * body: {model, conversationId, assistantName?, count?}
-	 * 复用独立请求通道（非流式），前端负责按钮渲染与点击代入。
-	 */
-	public void handleSuggestions(ChannelHandlerContext ctx, FullHttpRequest request) {
-		if (request.method() != HttpMethod.POST) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
-			return;
-		}
-		JsonObject body;
-		try {
-			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
-		} catch (Exception e) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
-			return;
-		}
-		if (body == null) {
-			return;
-		}
-		String modelId = JsonUtil.getJsonString(body, "model", "");
-		if (modelId == null || modelId.isBlank()) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PARAM_MODEL_ID_REQUIRED));
-			return;
-		}
-		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
-		String assistantName = JsonUtil.getJsonString(body, "assistantName", "");
-		int count = body.has("count") && body.get("count").isJsonPrimitive()
-				? body.get("count").getAsInt() : 3;
-		String nodeId = JsonUtil.getJsonString(body, "nodeId", "");
-		if (nodeId != null) {
-			nodeId = nodeId.trim();
-		}
-
-		// Resolve model target (alias + auto-load)
-		ModelTarget modelTarget = this.resolveModelTarget(modelId, nodeId);
-		if (modelTarget.error != null) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(modelTarget.error));
-			return;
-		}
-
-		// Build context: system prompt (with role card) + recent history + world info
-		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
-				? this.resolveAssistantTavern(assistantName)
-				: new AssistantTavernContext(null, null, null, null, null);
-		String systemPrompt = tavern.systemPrompt;
-		String worldInfoPrefix = null;
-		if (conversationId != null && !conversationId.isBlank()) {
-			try {
-				worldInfoPrefix = this.buildWorldInfoPrefix(tavern, conversationId, false);
-			} catch (Exception ignore) {
-				// world info failure should not block suggestions
-			}
-		}
-		StringBuilder contextSb = new StringBuilder();
-		if (worldInfoPrefix != null && !worldInfoPrefix.isBlank()) {
-			contextSb.append(worldInfoPrefix).append("\n\n");
-		}
-		if (conversationId != null && !conversationId.isBlank()) {
-			List<String> recent = this.collectRecentFragmentTexts(conversationId, 24);
-			for (String text : recent) {
-				contextSb.append(text).append("\n\n");
-			}
-		}
-		String historyText = contextSb.toString().trim();
-		if (historyText.isBlank()) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PARAM_PROMPT_MISSING));
-			return;
-		}
-
-		final String fModelId = modelTarget.resolvedModelId;
-		final Integer fPort = modelTarget.port;
-		final String fSystemPrompt = systemPrompt;
-		final String fHistory = historyText;
-		final int fCount = count;
-
-		this.worker.execute(() -> {
-			try {
-				List<String> suggestions = TavernAuxRequests.generateSuggestions(
-						fModelId, fPort != null ? fPort : 0, fSystemPrompt, fHistory, fCount);
-				Map<String, Object> data = new HashMap<>();
-				data.put("suggestions", suggestions);
-				if (!ctx.channel().isActive()) {
-					return;
-				}
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-			} catch (Exception e) {
-				logger.warn("[Tavern] 生成回复选项失败", e);
-				if (ctx.channel().isActive()) {
-					LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PROCESS_FAILED + ": " + e.getMessage()));
-				}
-			}
-		});
-	}
-
-	/**
-	 * 生成对话摘要（上下文压缩用）。
-	 * <p>
-	 * body: {model, conversationId?, assistantName?, text?}
-	 * 优先使用 body.text（前端已拼好待压缩历史）；否则从 conversation 读取历史。
-	 */
-	public void handleSummarize(ChannelHandlerContext ctx, FullHttpRequest request) {
-		if (request.method() != HttpMethod.POST) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
-			return;
-		}
-		JsonObject body;
-		try {
-			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
-		} catch (Exception e) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
-			return;
-		}
-		if (body == null) {
-			return;
-		}
-		String modelId = JsonUtil.getJsonString(body, "model", "");
-		if (modelId == null || modelId.isBlank()) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PARAM_MODEL_ID_REQUIRED));
-			return;
-		}
-		String inputText = JsonUtil.getJsonString(body, "text", "");
-		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
-		String nodeId = JsonUtil.getJsonString(body, "nodeId", "");
-		if (nodeId != null) {
-			nodeId = nodeId.trim();
-		}
-
-		// 优先用前端传入的待压缩文本，否则从 conversation 历史收集
-		if ((inputText == null || inputText.isBlank()) && conversationId != null && !conversationId.isBlank()) {
-			List<String> recent = this.collectRecentFragmentTexts(conversationId, 100);
-			inputText = String.join("\n\n", recent);
-		}
-		if (inputText == null || inputText.isBlank()) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PARAM_PROMPT_MISSING));
-			return;
-		}
-
-		ModelTarget modelTarget = this.resolveModelTarget(modelId, nodeId);
-		if (modelTarget.error != null) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(modelTarget.error));
-			return;
-		}
-		final String fModelId = modelTarget.resolvedModelId;
-		final Integer fPort = modelTarget.port;
-		final String fText = inputText;
-
-		this.worker.execute(() -> {
-			try {
-				String summary = TavernAuxRequests.generateSummary(
-						fModelId, fPort != null ? fPort : 0, fText);
-				Map<String, Object> data = new HashMap<>();
-				data.put("summary", summary != null ? summary : "");
-				if (!ctx.channel().isActive()) {
-					return;
-				}
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-			} catch (Exception e) {
-				logger.warn("[Tavern] 生成摘要失败", e);
-				if (ctx.channel().isActive()) {
-					LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PROCESS_FAILED + ": " + e.getMessage()));
-				}
-			}
-		});
-	}
-
-	/**
-	 * Prompt Debugger 预览：返回最终 prompt 的分段组装信息（不调用模型）。
-	 * <p>
-	 * body: {assistantName?, conversationId?}
-	 * 返回 {sections: [{name, role, content, tokens, source}], totalTokens}
-	 */
-	public void handlePromptPreview(ChannelHandlerContext ctx, FullHttpRequest request) {
-		if (request.method() != HttpMethod.POST) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
-			return;
-		}
-		JsonObject body;
-		try {
-			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
-		} catch (Exception e) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
-			return;
-		}
-		if (body == null) {
-			return;
-		}
-		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
-		String assistantName = JsonUtil.getJsonString(body, "assistantName", "");
-		// 预览用可选参数：当前待发草稿（模拟"user 消息已写盘"，对齐真实发送路径的世界书激活）
-		String previewMessage = JsonUtil.getJsonString(body, "message", "");
-
-		AssistantTavernContext tavern = assistantName != null && !assistantName.isBlank()
-				? this.resolveAssistantTavern(assistantName)
-				: new AssistantTavernContext(null, null, null, null, null);
-
-		JsonArray sections = new JsonArray();
-		// 1) system（角色卡）
-		if (tavern.systemPrompt != null && !tavern.systemPrompt.isBlank()) {
-			sections.add(buildPreviewSection("system", "system", tavern.systemPrompt, "角色卡/系统提示词"));
-		}
-		// 2) 世界书 + Author's Note + post-history（新消息段注入前缀）
-		JsonArray activatedDetail = new JsonArray();
-		if (conversationId != null && !conversationId.isBlank()) {
-			try {
-				WorldInfoBuildResult wbResult = this.buildWorldInfoPrefixDetail(tavern, conversationId, false,
-						previewMessage == null || previewMessage.isBlank() ? null : previewMessage);
-				if (wbResult != null) {
-					if (wbResult.prefix != null && !wbResult.prefix.isBlank()) {
-						sections.add(buildPreviewSection("world_info", "user", wbResult.prefix, "世界书/作者注记/对话后指令"));
-					}
-					// 激活明细：uid/order/matchedKey/matchedMessageIndex/source/内容预览/injected
-					for (Map<String, Object> detail : wbResult.activated) {
-						JsonObject d = new JsonObject();
-						for (Map.Entry<String, Object> e : detail.entrySet()) {
-							Object v = e.getValue();
-							if (v == null) {
-								d.add(e.getKey(), com.google.gson.JsonNull.INSTANCE);
-							} else if (v instanceof String) {
-								d.addProperty(e.getKey(), (String) v);
-							} else if (v instanceof Number) {
-								d.addProperty(e.getKey(), (Number) v);
-							} else if (v instanceof Boolean) {
-								d.addProperty(e.getKey(), (Boolean) v);
-							} else {
-								d.addProperty(e.getKey(), String.valueOf(v));
-							}
-						}
-						activatedDetail.add(d);
-					}
-				}
-			} catch (Exception e) {
-				logger.warn("[Tavern] prompt 预览世界书组装失败", e);
-			}
-			// 3) 历史消息
-			List<String> recent = this.collectRecentFragmentTexts(conversationId, 24);
-			for (String text : recent) {
-				if (text != null && !text.isBlank()) {
-					sections.add(buildPreviewSection("history", "user", text, "历史消息"));
-				}
-			}
-		}
-		int total = 0;
-		for (JsonElement el : sections) {
-			if (el.isJsonObject()) {
-				total += JsonUtil.getJsonInt(el.getAsJsonObject(), "tokens", 0);
-			}
-		}
-		Map<String, Object> data = new HashMap<>();
-		data.put("sections", sections);
-		data.put("totalTokens", total);
-		data.put("charName", tavern.charName);
-		data.put("activated", activatedDetail);
-		LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-	}
-
-	private static JsonObject buildPreviewSection(String name, String role, String content, String source) {
-		JsonObject sec = new JsonObject();
-		sec.addProperty("name", name);
-		sec.addProperty("role", role);
-		sec.addProperty("content", content);
-		sec.addProperty("tokens", TavernAuxRequests.estimateTokens(content));
-		sec.addProperty("source", source);
-		return sec;
-	}
-
-	/**
-	 * 执行上下文压缩（写入会话摘要）。
-	 * <p>
-	 * body: {conversationId, summary, keepRecent}
-	 * 后端把摘要写入 summary.json，历史读取时跳过 keepFromSeq 之前的旧消息。
-	 * 前端不再自行改 messages（那不影响后端历史）。
-	 */
-	public void handleCompress(ChannelHandlerContext ctx, FullHttpRequest request) {
-		if (request.method() != HttpMethod.POST) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_METHOD_POST_ONLY));
-			return;
-		}
-		JsonObject body;
-		try {
-			body = JsonUtil.parseFullHttpRequestToJsonObject(request, ctx);
-		} catch (Exception e) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_BODY_PARSE + ": " + e.getMessage()));
-			return;
-		}
-		if (body == null) {
-			return;
-		}
-		String conversationId = JsonUtil.getJsonString(body, "conversationId", "");
-		if (conversationId == null || conversationId.isBlank()) {
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PARAM_CONVERSATION_ID_REQUIRED));
-			return;
-		}
-		String summary = JsonUtil.getJsonString(body, "summary", "");
-		int keepRecent = body.has("keepRecent") && body.get("keepRecent").isJsonPrimitive()
-				? body.get("keepRecent").getAsInt() : 20;
-		try {
-			Path convDir = this.storage.getConversationDir(conversationId);
-			long nextSeq = this.storage.readNextSeq(convDir);
-			if (summary == null || summary.isBlank()) {
-				// 清空摘要（回退到全历史）
-				this.storage.writeSummary(convDir, null, 0);
-				LlamaServer.sendJsonResponse(ctx, ApiResponse.success(Map.of("compressed", false, "reset", true)));
-				return;
-			}
-			// keepRecent 条消息 ≈ 2*keepRecent 个 seq（user+assistant 成对），从最新往前数
-			int keepSeqSpan = Math.max(4, keepRecent * 2);
-			long keepFromSeq = Math.max(0, nextSeq - keepSeqSpan);
-			// 对齐到偶数 seq（user 起点），避免摘要后第一条变成 assistant 打破交替
-			if (keepFromSeq % 2 != 0) {
-				keepFromSeq += 1;
-			}
-			this.storage.writeSummary(convDir, summary, keepFromSeq);
-			Map<String, Object> data = new HashMap<>();
-			data.put("compressed", true);
-			data.put("keepFromSeq", keepFromSeq);
-			data.put("nextSeq", nextSeq);
-			logger.info("[Tavern] 上下文压缩 conversation={} keepFromSeq={} nextSeq={}", conversationId, keepFromSeq, nextSeq);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.success(data));
-		} catch (Exception e) {
-			logger.warn("[Tavern] 上下文压缩失败 conversation={}", conversationId, e);
-			LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_CHAT_PROCESS_FAILED + ": " + e.getMessage()));
-		}
-	}
-
 	/* ---- Assistant config lookup ---- */
 
-	/**
-	 * 解析 assistant 的酒馆上下文（角色卡 system prompt + 世界书）。
-	 * <p>
-	 * 从 state.json 同步状态读取 assistant 对象：
-	 * <ul>
-	 * <li>无 card / worldBook 字段 → 回退旧 systemPrompt（完全向后兼容）</li>
-	 * <li>有 card → 用 AssistantCard 组装 system prompt（覆盖原生 systemPrompt）</li>
-	 * <li>有 worldBook → 提取原始 JSON 供世界书扫描</li>
-	 * </ul>
-	 */
-	private AssistantTavernContext resolveAssistantTavern(String assistantName) {
+	private String resolveAssistantSystemPrompt(String assistantName) {
 		if (assistantName == null || assistantName.isBlank()) {
-			return new AssistantTavernContext(null, null, null, null, null);
+			return null;
 		}
 		for (Path stateFile : this.getAssistantStateFiles()) {
-			JsonObject assistant = this.findAssistantInState(stateFile, assistantName);
-			if (assistant != null) {
-				return this.buildTavernContext(assistant);
+			String systemPrompt = this.readAssistantSystemPromptFromState(stateFile, assistantName);
+			if (systemPrompt != null && !systemPrompt.isBlank()) {
+				return systemPrompt;
 			}
 		}
-		logger.info("[EasyChat] 未在同步状态中找到助手 assistantName={}", assistantName);
-		return new AssistantTavernContext(null, null, null, null, null);
-	}
-
-	/** 按 name 查找 assistant 对象；不存在返回 null */
-	private JsonObject findAssistantInState(Path stateFile, String assistantName) {
-		if (stateFile == null || assistantName == null || assistantName.isBlank() || !Files.isRegularFile(stateFile)) {
-			return null;
-		}
-		try {
-			JsonObject state = JsonUtil.fromJson(Files.readString(stateFile, StandardCharsets.UTF_8), JsonObject.class);
-			if (state == null || !state.has("assistants") || !state.get("assistants").isJsonArray()) {
-				return null;
-			}
-			JsonArray assistants = state.getAsJsonArray("assistants");
-			for (JsonElement element : assistants) {
-				if (element == null || !element.isJsonObject()) {
-					continue;
-				}
-				JsonObject assistant = element.getAsJsonObject();
-				String name = JsonUtil.getJsonString(assistant, "name", "");
-				if (assistantName.equals(name)) {
-					return assistant;
-				}
-			}
-		} catch (Exception e) {
-			logger.warn("[EasyChat] 读取助手同步状态失败 stateFile={}", stateFile, e);
-		}
+		logger.info("[EasyChat] 未在同步状态中找到助手 systemPrompt assistantName={}", assistantName);
 		return null;
-	}
-
-	/** 从 assistant 对象构建酒馆上下文 */
-	private AssistantTavernContext buildTavernContext(JsonObject assistant) {
-		String legacySystemPrompt = JsonUtil.getJsonString(assistant, "systemPrompt", "");
-		String assistantId = JsonUtil.getJsonString(assistant, "id", "");
-		// 角色名：card.name 优先（酒馆卡名覆盖助手名），否则 assistant.name
-		String assistantName = JsonUtil.getJsonString(assistant, "name", "");
-		String charName = assistantName;
-
-		// 角色卡：优先 card 字段（前端导入 PNG/JSON 后存这里）
-		String systemPrompt = legacySystemPrompt;
-		AssistantCard card = null;
-		if (assistant.has("card") && assistant.get("card").isJsonObject()) {
-			try {
-				JsonObject cardObj = assistant.getAsJsonObject("card");
-				card = JsonUtil.fromJson(cardObj, AssistantCard.class);
-				if (card.getName() != null && !card.getName().isBlank()) {
-					charName = card.getName();
-				}
-				String assembled = card.buildSystemPrompt();
-				if (assembled != null && !assembled.isBlank()) {
-					systemPrompt = assembled;
-					logger.info("[Tavern] 使用角色卡组装 system prompt assistantId={} len={}", assistantId, assembled.length());
-				}
-			} catch (Exception e) {
-				logger.warn("[Tavern] 解析 assistant card 失败 assistantId={}", assistantId, e);
-			}
-		}
-
-		// 宏替换（{{char}}/{{user}}/{{persona}}）：出站时替换，存储保持原样
-		if (systemPrompt != null && !systemPrompt.isBlank() && systemPrompt.contains("{{")) {
-			systemPrompt = TavernTemplateResolver.resolve(systemPrompt, charName, "用户", null);
-		}
-
-		// 世界书：优先 worldBook 字段（酒馆 JSON 字符串）
-		String worldBook = null;
-		JsonElement wbEl = assistant.has("worldBook") ? assistant.get("worldBook") : null;
-		if (wbEl != null && !wbEl.isJsonNull()) {
-			if (wbEl.isJsonPrimitive() && wbEl.getAsJsonPrimitive().isString()) {
-				worldBook = wbEl.getAsString();
-			} else {
-				worldBook = JsonUtil.toJson(wbEl);
-			}
-		}
-		if (worldBook != null && worldBook.isBlank()) {
-			worldBook = null;
-		}
-		return new AssistantTavernContext(systemPrompt, worldBook, assistantId, card, charName);
-	}
-
-	/** 酒馆上下文字段（system prompt + 世界书 JSON + assistantId） */
-	static final class AssistantTavernContext {
-		final String systemPrompt;
-		final String worldBookJson;
-		final String assistantId;
-		final AssistantCard card;
-		final String charName;
-
-		AssistantTavernContext(String systemPrompt, String worldBookJson, String assistantId, AssistantCard card, String charName) {
-			this.systemPrompt = systemPrompt;
-			this.worldBookJson = worldBookJson;
-			this.assistantId = assistantId;
-			this.card = card;
-			this.charName = charName;
-		}
-	}
-
-	/* ---- Tavern: world info scanning ---- */
-
-	/**
-	 * 世界书扫描并拼装注入前缀。
-	 * <p>
-	 * 从 assistant 的 worldBook JSON 解析条目，扫描会话历史文本，
-	 * 激活条目拼成 {@code [World Info]...} 前缀。
-	 * 只读最近的 fragment 文本（depth 控制），不做全文扫描。
-	 *
-	 * @param tavernContext assistant 酒馆上下文（worldBookJson 可能为 null）
-	 * @param conversationId 会话 ID（读取 fragments 历史）
-	 * @param ephemeral 是否瞬时会话（无持久历史，跳过扫描）
-	 * @return 注入前缀文本；无世界书 / 无激活条目返回 null
-	 */
-	private String buildWorldInfoPrefix(AssistantTavernContext tavernContext, String conversationId, boolean ephemeral) {
-		WorldInfoBuildResult result = buildWorldInfoPrefixDetail(tavernContext, conversationId, ephemeral, null);
-		return result == null ? null : result.prefix;
-	}
-
-	/** 世界书前缀组装结果：注入前缀 + 激活明细（Prompt Debugger 可视化用） */
-	static final class WorldInfoBuildResult {
-		final String prefix;
-		final List<Map<String, Object>> activated;
-		WorldInfoBuildResult(String prefix, List<Map<String, Object>> activated) {
-			this.prefix = prefix;
-			this.activated = activated;
-		}
-	}
-
-	/**
-	 * 组装世界书/作者注记/对话后指令前缀，并返回激活明细。
-	 *
-	 * @param extraMessage 预览用可选参数：模拟"最新 user 消息已写盘"，
-	 *                     拼进扫描窗口末尾（真实发送路径 user 消息先写盘再组装，
-	 *                     预览时未写盘 → 窗口少一条 → 传草稿可对齐激活结果）
-	 */
-	private WorldInfoBuildResult buildWorldInfoPrefixDetail(AssistantTavernContext tavernContext, String conversationId,
-			boolean ephemeral, String extraMessage) {
-		if (tavernContext == null) {
-			return null;
-		}
-		String charName = tavernContext.charName;
-		StringBuilder sb = new StringBuilder();
-		List<Map<String, Object>> activatedDetail = new ArrayList<>();
-
-		// 1) Author's Note：全局提醒（随世界书通道注入新消息段，Qwen3.6 安全）
-		String authorNote = tavernContext.card != null ? tavernContext.card.getAuthorNote() : null;
-		if (authorNote != null && !authorNote.isBlank()) {
-			sb.append("[Author's Note]\n").append(resolveTavernText(authorNote, charName));
-		}
-
-		// 2) post_history_instructions：注入到「历史之后」——即最新 user 消息前缀
-		String postHistory = tavernContext.card != null ? tavernContext.card.getPostHistoryInstructions() : null;
-		if (postHistory != null && !postHistory.isBlank()) {
-			if (sb.length() > 0) {
-				sb.append("\n\n");
-			}
-			sb.append("[Post History Instructions]\n").append(resolveTavernText(postHistory, charName));
-		}
-
-		// 3) 世界书激活条目（全局书 + 角色书合并扫描）
-		if (!ephemeral) {
-			// 全局世界书（state 级，不分角色）：与角色书同语义，合入扫描
-			String globalBook = this.readGlobalWorldBook();
-			if (globalBook != null && !globalBook.isBlank()) {
-				List<WorldBookEntry> globalEntries = WorldBookParser.parse(globalBook);
-				List<String> recentMessages = this.collectScanWindow(conversationId, extraMessage);
-				if (!recentMessages.isEmpty() && !globalEntries.isEmpty()) {
-					for (WorldBookScanner.ScanHit hit : WorldBookScanner.scanDetailed(globalEntries, recentMessages)) {
-						activatedDetail.add(hitToDetail(hit));
-					}
-				}
-			}
-			// 角色世界书（assistant.worldBook）
-			if (tavernContext.worldBookJson != null && !tavernContext.worldBookJson.isBlank()) {
-				List<WorldBookEntry> entries = WorldBookParser.parse(tavernContext.worldBookJson);
-				List<String> recentMessages = this.collectScanWindow(conversationId, extraMessage);
-				if (!recentMessages.isEmpty() && !entries.isEmpty()) {
-					for (WorldBookScanner.ScanHit hit : WorldBookScanner.scanDetailed(entries, recentMessages)) {
-						activatedDetail.add(hitToDetail(hit));
-					}
-				}
-			}
-			if (!activatedDetail.isEmpty()) {
-				activatedDetail.sort(Comparator.comparingInt(m -> (Integer) m.get("order")));
-				if (sb.length() > 0) {
-					sb.append("\n\n");
-				}
-				sb.append("[World Info]");
-				// token budget：世界书注入总量上限（默认 2048 token，防大书撑爆上下文）
-				int budget = WORLD_INFO_TOKEN_BUDGET;
-				int used = 0;
-				int injected = 0;
-				for (Map<String, Object> detail : activatedDetail) {
-					// 宏替换：{{char}}/{{user}}/{{persona}}（detail 里保留原始 content，prefix 用替换版）
-					String content = resolveTavernText((String) detail.get("content"), charName);
-					int tokens = TavernAuxRequests.estimateTokens(content);
-					if (used + tokens > budget) {
-						detail.put("injected", false);
-						continue;
-					}
-					sb.append("\n\n").append(content);
-					used += tokens;
-					injected++;
-					detail.put("injected", true);
-				}
-				logger.info("[Tavern] 世界书注入 {} 条 conversation={} (budget {}/{})", injected, conversationId, used, budget);
-			}
-		}
-		String prefix = sb.length() > 0 ? sb.toString() : null;
-		return new WorldInfoBuildResult(prefix, activatedDetail);
-	}
-
-	/** 扫描窗口：历史 + 可选 extraMessage（模拟最新 user 消息，预览用） */
-	private List<String> collectScanWindow(String conversationId, String extraMessage) {
-		List<String> window = new ArrayList<>(this.collectRecentFragmentTexts(conversationId, 16));
-		if (extraMessage != null && !extraMessage.isBlank()) {
-			window.add(extraMessage);
-		}
-		return window;
-	}
-
-	/** ScanHit → 前端可读明细（uid/order/key/命中消息/来源/内容预览） */
-	private static Map<String, Object> hitToDetail(WorldBookScanner.ScanHit hit) {
-		Map<String, Object> detail = new HashMap<>();
-		WorldBookEntry entry = hit.entry;
-		detail.put("uid", entry.getUid());
-		detail.put("order", entry.getOrder());
-		detail.put("matchedKey", hit.matchedKey);
-		detail.put("matchedMessageIndex", hit.matchedMessageIndex);
-		detail.put("source", hit.source);
-		String content = entry.formatContent();
-		detail.put("content", content);
-		detail.put("contentPreview", content.length() > 80 ? content.substring(0, 80) + "…" : content);
-		detail.put("injected", false);
-		return detail;
-	}
-
-	/** 世界书注入 token 预算上限（对标酒馆 world_info_budget，防大书撑爆上下文） */
-	private static final int WORLD_INFO_TOKEN_BUDGET = 2048;
-
-	/** 宏替换包装：{{char}}/{{user}}/{{persona}} */
-	private String resolveTavernText(String text, String charName) {
-		if (text == null || !text.contains("{{")) {
-			return text;
-		}
-		return TavernTemplateResolver.resolve(text, charName, "用户", null);
-	}
-
-	/** 全局世界书缓存：避免每次聊天请求都全量读 state.json（默认场景无全局书时也省一次 IO） */
-	private volatile String cachedGlobalWorldBook;
-	private volatile long cachedGlobalWorldBookMtime = -1;
-
-	/** 读 state 级全局世界书（assistants 数组之外的顶层 globalWorldBook 字段） */
-	private String readGlobalWorldBook() {
-		try {
-			for (Path stateFile : this.getAssistantStateFiles()) {
-				if (stateFile == null || !Files.isRegularFile(stateFile)) {
-					continue;
-				}
-				// 缓存：mtime 未变则复用上次结果（state.json 由前端 sync 写入，mtime 会更新）
-				long mtime = Files.getLastModifiedTime(stateFile).toMillis();
-				if (mtime == this.cachedGlobalWorldBookMtime) {
-					return this.cachedGlobalWorldBook;
-				}
-				JsonObject state = JsonUtil.fromJson(Files.readString(stateFile, StandardCharsets.UTF_8), JsonObject.class);
-				String result = null;
-				if (state != null && state.has("globalWorldBook")) {
-					JsonElement wbEl = state.get("globalWorldBook");
-					if (wbEl != null && !wbEl.isJsonNull()) {
-						if (wbEl.isJsonPrimitive() && wbEl.getAsJsonPrimitive().isString()) {
-							result = wbEl.getAsString();
-						} else {
-							result = JsonUtil.toJson(wbEl);
-						}
-					}
-				}
-				this.cachedGlobalWorldBook = result;
-				this.cachedGlobalWorldBookMtime = mtime;
-				return result;
-			}
-		} catch (Exception e) {
-			logger.warn("[Tavern] 读取全局世界书失败", e);
-		}
-		return null;
-	}
-
-	/**
-	 * 收集最近的 fragment 消息文本（用于世界书关键词扫描）。
-	 *
-	 * @param conversationId 会话 ID
-	 * @param limit 最多收集条数
-	 * @return 按 seq 升序的消息 content 文本列表
-	 */
-	private List<String> collectRecentFragmentTexts(String conversationId, int limit) {
-		List<String> texts = new ArrayList<>();
-		try {
-			Path convDir = this.storage.getConversationDir(conversationId);
-			long nextSeq = this.storage.readNextSeq(convDir);
-			// 倒序扫描：从最新往旧取最近 limit 条非空消息（世界书扫描窗口）
-			for (long seq = nextSeq - 1; seq >= 0 && texts.size() < limit; seq--) {
-				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(convDir, seq);
-				if (header == null || this.storage.isDeleted(header)) {
-					continue;
-				}
-				int variant = this.storage.resolveVariantIndex(header, null);
-				if (variant < 0) {
-					continue;
-				}
-				byte[] payload = this.storage.readPayload(convDir, seq, variant);
-				if (payload == null || payload.length == 0) {
-					continue;
-				}
-				JsonObject parsed = JsonUtil.tryParseObject(payload);
-				if (parsed == null) {
-					continue;
-				}
-				String content = JsonUtil.getJsonString(parsed, "content", "");
-				if (content != null && !content.isBlank()) {
-					texts.add(content);
-				}
-			}
-		// 保持正序（最早在前、最新在后）：扫描时 depth 语义依赖消息顺序
-			java.util.Collections.reverse(texts);
-		} catch (Exception e) {
-			logger.warn("[Tavern] 读取会话历史失败 conversation={}", conversationId, e);
-		}
-		return texts;
 	}
 
 	private List<Path> getAssistantStateFiles() {
@@ -2990,7 +2288,7 @@ public class EasyChatService {
 	 * forwards to remote node via NodeManager, and proxies the SSE stream back.
 	 */
 	private void handleRemoteNodeRequest(ChannelHandlerContext ctx, String conversationId, String nodeId,
-			String modelId, String systemPrompt, String worldInfoPrefix, String firstMessage, Path convDir, byte[] toolsBytes, JsonObject samplingParams,
+			String modelId, String systemPrompt, Path convDir, byte[] toolsBytes, JsonObject samplingParams,
 			Map<Long, Integer> variants, Long regenerateSeq, Long continueSeq, byte[] transientUserMessageBytes,
 			Path transientUserMessageFile, boolean skipHistory, boolean stream, StreamAccumulator accumulator)
 			throws Exception {
@@ -3005,9 +2303,9 @@ public class EasyChatService {
 					OutputStream os = (remoteLogStream != null) ? new TeeOutputStream(output, remoteLogStream) : output;
 					try {
 						this.requestWriter.writeRequestBody(os,
-																new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
-																		samplingParams, false, variants, regenerateSeq, continueSeq,
-																		transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, worldInfoPrefix, firstMessage));
+								new EasyChatRequestWriter.RequestSpec(modelId, systemPrompt, convDir, toolsBytes,
+										samplingParams, false, variants, regenerateSeq, continueSeq,
+										transientUserMessageBytes, transientUserMessageFile, skipHistory, stream));
 					} finally {
 						if (remoteLogStream != null) {
 							try {

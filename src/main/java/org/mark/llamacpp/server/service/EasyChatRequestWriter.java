@@ -47,41 +47,6 @@ final class EasyChatRequestWriter {
 		}
 
 		boolean isContinue = spec.continueSeq != null;
-		// 会话摘要（上下文压缩）：有 summary.json 时在 system 后注入摘要消息，
-		// 历史回放跳过 seq < keepFromSeq 的旧消息（它们已被摘要替代）。
-		Object[] summaryInfo = spec.conversationDir == null ? null : this.storage.readSummary(spec.conversationDir);
-		String conversationSummary = summaryInfo == null ? null : (String) summaryInfo[0];
-		long summaryKeepFromSeq = summaryInfo == null ? 0 : (Long) summaryInfo[1];
-		// 预扫描：历史范围内最后一条 user fragment 的 seq + 最后一条非空 fragment 的 seq。
-		// 世界书只在「最后一条非空消息恰好是 user 消息」（正常发送场景）时注入到它之前，
-		// 保持 system + 旧历史段字节不变（prefix cache 命中），动态内容收口到新消息段。
-		// regenerate/continue 场景最后一条非空是 assistant，不注入（避免污染中段）。
-		long[] scanResult = findLastSeqAndUserSeq(spec);
-		long lastUserSeq = scanResult[0];
-		long lastNonEmptySeq = scanResult[1];
-		// 摘要消息注入（在 system 之后、历史段之前）
-		if (conversationSummary != null && !conversationSummary.isBlank()) {
-			JsonObject summaryMsg = new JsonObject();
-			summaryMsg.addProperty("role", "user");
-			summaryMsg.addProperty("content", "[Conversation Summary - 之前的故事]\n" + conversationSummary);
-			if (wroteAnyMessage) {
-				this.writeAscii(output, COMMA);
-			}
-			this.writeString(output, JsonUtil.toJson(summaryMsg));
-			wroteAnyMessage = true;
-		}
-		// 开场白注入：会话历史为空（新聊天）时，first_mes 作为首条 assistant 消息
-		// （酒馆语义：新聊天 = 角色先开口，用户在下面回复）
-		if (lastNonEmptySeq < 0 && spec.firstMessage != null && !spec.firstMessage.isBlank()) {
-			JsonObject firstMsg = new JsonObject();
-			firstMsg.addProperty("role", "assistant");
-			firstMsg.addProperty("content", spec.firstMessage);
-			if (wroteAnyMessage) {
-				this.writeAscii(output, COMMA);
-			}
-			this.writeString(output, JsonUtil.toJson(firstMsg));
-			wroteAnyMessage = true;
-		}
 		if (!spec.skipHistory && spec.conversationDir != null) {
 			long historyEndExclusive = storage.readNextSeq(spec.conversationDir);
 			if (spec.regenerateSeq != null) {
@@ -91,8 +56,7 @@ final class EasyChatRequestWriter {
 				// Include the target assistant fragment as the last message.
 				historyEndExclusive = Math.min(historyEndExclusive, spec.continueSeq.longValue() + 1);
 			}
-			long startSeq = Math.max(0, summaryKeepFromSeq);
-			for (long seq = startSeq; seq < historyEndExclusive; seq++) {
+			for (long seq = 0; seq < historyEndExclusive; seq++) {
 				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(spec.conversationDir, seq);
 				if (header == null) {
 					continue;
@@ -116,18 +80,7 @@ final class EasyChatRequestWriter {
 				if (wroteAnyMessage) {
 					this.writeAscii(output, COMMA);
 				}
-				// 世界书注入：仅当最后一条非空消息是 user（正常发送场景）才把它拿出来，
-				// 在 content 前拼 worldInfo 前缀后整体写出（保留 images/audios/videos 等附件字段）。
-				// regenerate/continue 最后一条非空是 assistant，不注入。
-				boolean injectWorldInfo = seq == lastUserSeq
-						&& lastUserSeq == lastNonEmptySeq
-						&& seq == historyEndExclusive - 2
-						&& spec.worldInfoPrefix != null && !spec.worldInfoPrefix.isBlank();
-				if (injectWorldInfo) {
-					this.writeString(output, JsonUtil.toJson(this.injectWorldInfoIntoFragment(spec.conversationDir, seq, resolvedVariant, spec.worldInfoPrefix)));
-				} else {
-					this.storage.streamSlice(slice, output);
-				}
+				this.storage.streamSlice(slice, output);
 				wroteAnyMessage = true;
 			}
 		}
@@ -317,170 +270,42 @@ final class EasyChatRequestWriter {
 		output.write(text.getBytes(StandardCharsets.UTF_8));
 	}
 
-	/** 判断 fragment 是否为 user 消息（读 payload 顶层 role，容忍缺失/损坏） */
-	private boolean isUserFragment(Path dir, long seq, int variantIndex) {
-		try {
-			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
-			if (payload == null || payload.length == 0) {
-				return false;
-			}
-			JsonObject parsed = JsonUtil.tryParseObject(payload);
-			if (parsed == null) {
-				return false;
-			}
-			String role = JsonUtil.getJsonString(parsed, "role", "");
-			return "user".equals(role);
-		} catch (IOException | RuntimeException e) {
-			return false;
-		}
-	}
-
-	/**
-	 * 预扫描历史，返回 [最后一条 user fragment 的 seq, 最后一条非空 fragment 的 seq]。
-	 * 不存在返回 -1。-1 表示无匹配。
-	 * 只读头部 + 极小 payload 判断 role，不流式输出。
-	 */
-	private long[] findLastSeqAndUserSeq(RequestSpec spec) {
-		if (spec.skipHistory || spec.conversationDir == null) {
-			return new long[]{-1, -1};
-		}
-		try {
-			long historyEndExclusive = this.storage.readNextSeq(spec.conversationDir);
-			if (spec.regenerateSeq != null) {
-				historyEndExclusive = Math.min(historyEndExclusive, spec.regenerateSeq.longValue());
-			}
-			if (spec.continueSeq != null) {
-				historyEndExclusive = Math.min(historyEndExclusive, spec.continueSeq.longValue() + 1);
-			}
-			long lastUser = -1;
-			long lastNonEmpty = -1;
-			for (long seq = 0; seq < historyEndExclusive; seq++) {
-				EasyChatStorage.FragmentHeader header = this.storage.readFragmentHeader(spec.conversationDir, seq);
-				if (header == null || this.storage.isDeleted(header)) {
-					continue;
-				}
-				Integer preferredVariant = spec.variants == null ? null : spec.variants.get(seq);
-				int resolvedVariant = this.storage.resolveVariantIndex(header, preferredVariant);
-				if (resolvedVariant < 0) {
-					continue;
-				}
-				EasyChatStorage.FragmentSlice slice = this.storage.getVariantSlice(spec.conversationDir, seq, resolvedVariant);
-				if (slice != null && slice.length > 0) {
-					lastNonEmpty = seq;
-					if (this.isUserFragment(spec.conversationDir, seq, resolvedVariant)) {
-						lastUser = seq;
-					}
-				}
-			}
-			return new long[]{lastUser, lastNonEmpty};
-		} catch (Exception e) {
-			return new long[]{-1, -1};
-		}
-	}
-
-	/**
-	 * 世界书注入：读取 fragment 原始 payload，把 worldInfo 前缀拼接到 content 之前，
-	 * 其余字段（images/audios/videos/tool_calls 等附件）原样保留。
-	 * 单条 fragment 读入内存无 OOM 风险（原注释警告的是回放全历史逐条 parse）。
-	 */
-	private JsonObject injectWorldInfoIntoFragment(Path dir, long seq, int variantIndex, String worldInfoPrefix) {
-		JsonObject parsed = null;
-		try {
-			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
-			if (payload != null && payload.length > 0) {
-				parsed = JsonUtil.tryParseObject(payload);
-			}
-		} catch (Exception ignore) {
-			parsed = null;
-		}
-		if (parsed == null) {
-			parsed = new JsonObject();
-			parsed.addProperty("role", "user");
-		}
-		String original = JsonUtil.getJsonString(parsed, "content", "");
-		String merged = (worldInfoPrefix == null || worldInfoPrefix.isBlank())
-				? original
-				: worldInfoPrefix + "\n" + (original == null ? "" : original);
-		parsed.addProperty("content", merged);
-		return parsed;
-	}
-
-	/** 读取 fragment 的 content 字段（用于世界书注入时拼接内容） */
-	private String readFragmentContent(Path dir, long seq, int variantIndex) {
-		try {
-			byte[] payload = this.storage.readPayload(dir, seq, variantIndex);
-			if (payload == null || payload.length == 0) {
-				return "";
-			}
-			JsonObject parsed = JsonUtil.tryParseObject(payload);
-			if (parsed == null) {
-				return "";
-			}
-			String content = JsonUtil.getJsonString(parsed, "content", "");
-			return content == null ? "" : content;
-		} catch (IOException | RuntimeException e) {
-			return "";
-		}
-	}
-
 	private void writeAscii(OutputStream output, byte[] bytes) throws IOException {
 		output.write(bytes);
 	}
 
 	static final class RequestSpec {
-			final String modelId;
-			final String systemPrompt;
-			final Path conversationDir;
-			final byte[] toolsBytes;
-			final JsonObject samplingParams;
-			final boolean skipSamplingInjection;
-			final Map<Long, Integer> variants;
-			final Long regenerateSeq;
-			final Long continueSeq;
-			final byte[] transientUserMessageBytes;
-			final Path transientUserMessageFile;
-			final boolean skipHistory;
-			final boolean stream;
-			/** 世界书激活条目文本，注入到最新一条 user 消息之前（新消息段，缓存友好） */
-			final String worldInfoPrefix;
-			/** 开场白（first_mes）：仅在会话历史为空（新聊天）时作为首条 assistant 消息注入 */
-			final String firstMessage;
+		final String modelId;
+		final String systemPrompt;
+		final Path conversationDir;
+		final byte[] toolsBytes;
+		final JsonObject samplingParams;
+		final boolean skipSamplingInjection;
+		final Map<Long, Integer> variants;
+		final Long regenerateSeq;
+		final Long continueSeq;
+		final byte[] transientUserMessageBytes;
+		final Path transientUserMessageFile;
+		final boolean skipHistory;
+		final boolean stream;
 
-			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
-					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
-					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
-					boolean skipHistory, boolean stream) {
-				this(modelId, systemPrompt, conversationDir, toolsBytes, samplingParams, skipSamplingInjection, variants,
-						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, null, null);
-			}
-
-			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
-					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
-					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
-					boolean skipHistory, boolean stream, String worldInfoPrefix) {
-				this(modelId, systemPrompt, conversationDir, toolsBytes, samplingParams, skipSamplingInjection, variants,
-						regenerateSeq, continueSeq, transientUserMessageBytes, transientUserMessageFile, skipHistory, stream, worldInfoPrefix, null);
-			}
-
-			RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
-					JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
-					Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
-					boolean skipHistory, boolean stream, String worldInfoPrefix, String firstMessage) {
-				this.modelId = modelId;
-				this.systemPrompt = systemPrompt;
-				this.conversationDir = conversationDir;
-				this.toolsBytes = toolsBytes;
-				this.samplingParams = samplingParams;
-				this.skipSamplingInjection = skipSamplingInjection;
-				this.variants = variants;
-				this.regenerateSeq = regenerateSeq;
-				this.continueSeq = continueSeq;
-				this.transientUserMessageBytes = transientUserMessageBytes;
-				this.transientUserMessageFile = transientUserMessageFile;
-				this.skipHistory = skipHistory;
-				this.stream = stream;
-				this.worldInfoPrefix = worldInfoPrefix;
-				this.firstMessage = firstMessage;
-			}
+		RequestSpec(String modelId, String systemPrompt, Path conversationDir, byte[] toolsBytes,
+			JsonObject samplingParams, boolean skipSamplingInjection, Map<Long, Integer> variants, Long regenerateSeq,
+			Long continueSeq, byte[] transientUserMessageBytes, Path transientUserMessageFile,
+			boolean skipHistory, boolean stream) {
+			this.modelId = modelId;
+			this.systemPrompt = systemPrompt;
+			this.conversationDir = conversationDir;
+			this.toolsBytes = toolsBytes;
+			this.samplingParams = samplingParams;
+			this.skipSamplingInjection = skipSamplingInjection;
+			this.variants = variants;
+			this.regenerateSeq = regenerateSeq;
+			this.continueSeq = continueSeq;
+			this.transientUserMessageBytes = transientUserMessageBytes;
+			this.transientUserMessageFile = transientUserMessageFile;
+			this.skipHistory = skipHistory;
+			this.stream = stream;
 		}
+	}
 }
