@@ -30,7 +30,7 @@ public final class TavernAuxRequests {
     private static final Logger logger = LoggerFactory.getLogger(TavernAuxRequests.class);
 
     /** 选项生成请求超时（秒） */
-    private static final int SUGGESTION_TIMEOUT_MS = 60_000;
+    private static final int SUGGESTION_TIMEOUT_MS = 120_000;
     /** 摘要生成请求超时（秒） */
     private static final int SUMMARY_TIMEOUT_MS = 120_000;
 
@@ -173,8 +173,15 @@ public final class TavernAuxRequests {
             JsonObject message = first.getAsJsonObject("message");
             String content = JsonUtil.getJsonString(message, "content", "");
             if (content == null || content.isBlank()) {
-                // reasoning 模型可能只有 reasoning_content——无 content 视为失败
-                return null;
+                // 思考模型（如 Qwen3 DFlash 系）在 enable_thinking 未生效或版本不支持时，
+                // content 可能为空而思考内容在 reasoning_content 里。
+                // fallback 读 reasoning_content，避免"选项静默不生成"。
+                content = JsonUtil.getJsonString(message, "reasoning_content", "");
+                if (content == null || content.isBlank()) {
+                    return null;
+                }
+                logger.info("[TavernAux] content 为空，回退使用 reasoning_content ({})", content.length() + " 字符");
+                return content;
             }
             return content;
         } catch (Exception e) {

@@ -8137,8 +8137,17 @@
                 try {
                   const suggestions = await window.Tavern.generateSuggestions(3);
                   window.dispatchEvent(new CustomEvent('tavern:suggestions', { detail: suggestions }));
+                  // 去静默：空结果也提示（原实现失败/空为空数组时无声隐藏，用户以为"没这功能"）
+                  if (!Array.isArray(suggestions) || suggestions.length === 0) {
+                    showToast('info', window.I18N.t('page.chat.main.tavern.suggestions_empty', '回复选项生成失败，请检查后端日志'));
+                  }
                 } catch (e) {
                   console.warn('[Tavern] 回复选项生成失败', e);
+                  try {
+                    showToast('error', window.I18N.t('page.chat.main.tavern.suggestions_error', '回复选项生成失败：{error}').replace('{error}', e?.message || '未知错误'));
+                  } catch (e2) {
+                    // ignore
+                  }
                 }
               }
             }
