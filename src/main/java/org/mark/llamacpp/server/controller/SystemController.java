@@ -401,17 +401,7 @@ public class SystemController implements BaseController {
 				return;
 			}
 
-			// 路径白名单校验：只允许浏览模型目录、下载目录、llamacpp目录，防止遍历整个文件系统
-			{
-				Path baseNorm = base.toAbsolutePath().normalize();
-				Path modelsDir = Paths.get(LlamaServer.getDefaultModelsPath()).toAbsolutePath().normalize();
-				Path downloadDir = Paths.get(LlamaServer.getDownloadDirectory()).toAbsolutePath().normalize();
-				Path llamacppDir = Paths.get(LlamaServer.getDefaultLlamaCppPath()).toAbsolutePath().normalize();
-				if (!baseNorm.startsWith(modelsDir) && !baseNorm.startsWith(downloadDir) && !baseNorm.startsWith(llamacppDir)) {
-					LlamaServer.sendJsonResponse(ctx, ApiResponse.error(I18N_PATH_INVALID));
-					return;
-				}
-			}
+			// 目录浏览不做白名单限制（与上游一致，访问面由 API Key 鉴权保护）
 
 			final List<Map<String, Object>> dirs = new ArrayList<>();
 			final List<Map<String, Object>> files = new ArrayList<>();

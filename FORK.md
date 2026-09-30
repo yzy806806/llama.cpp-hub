@@ -21,7 +21,18 @@
 ① 安全架构（API Key 鉴权体系 + MCP 加固）—— fork 核心价值
 ② 上游同步（v0.9.8.3 已合并）
 ③ EasyChat 酒馆改造（2026-09-06 起）→ 已回退（2026-09-10），见下
+④ 可用性修复（v1.0.26）：目录浏览白名单移除，见下
 ```
+
+### 目录浏览白名单移除（v1.0.26）
+
+`SystemController` 的 `/api/sys/fs/list` 曾有一条路径白名单（仅允许模型目录/下载目录/
+llamacpp 目录，2026-07-22 安全审计 C3 项），导致 WebUI 目录选择器除 hub 自身目录外
+一律报 `api.error.path.invalid`，用户无法选择自定义文件夹。
+
+**决策**：移除，与上游行为一致——浏览访问面由 API Key 鉴权保护即可，不做路径白名单。
+（下载侧的路径校验保留：`sanitizePathSegment` + 目标目录必须在模型根下，那是防路径逃逸的
+合理实践，不属误伤。）
 
 ### 酒馆改造已回退（commit `ee9c96f`）
 
@@ -63,7 +74,7 @@ commit `ee9c96f` 的父链里完整保留了 4177 行酒馆代码（`git log` �
 | 4 | **`LlamaServerManager.java` 两处 `--host 127.0.0.1`** ⭐ | llama-server 子进程只监听回环；`stripHubOwnedFlags` 剥离用户传入的 `--host/--port/--alias/--timeout/--metrics/--model/-m` | **最高优先级守卫点**，见下节 |
 | 5 | `update/GitHubTagFetcherNative.java` + `web/js/settings.js` | 自动更新指向本 fork | 上游 release 与我们无关 |
 | 6 | `web/js/api-auth.js` + 各页面引入 | 前端从 Cookie 读 Key 自动注入 Bearer | WebUI 免登录态丢失 |
-| 7 | `SystemController.java` | `/api/sys/setting` 不返回明文 apiKey；新增 `/api/auth/verify`；目录浏览白名单 | 敏感信息脱敏 + 路径穿越防护 |
+| 7 | `SystemController.java` | `/api/sys/setting` 不返回明文 apiKey；新增 `/api/auth/verify`。（原「目录浏览白名单」已于 v1.0.26 移除——与上游一致，浏览访问面由 API Key 鉴权保护） | 敏感信息脱敏 |
 | 8 | `mcp/channel/NettySseMcpServer.java` + `McpRouterHandler.java` | **MCP 强制 bind `127.0.0.1`**（非 wildcard）；新增 Bearer token 校验（constant-time compare），缺失/错误返回 401 | MCP 暴露面收口（v1.0.18） |
 | 9 | `mcp` 工具 | `write_text_file`：1MB 大小上限 + symlink 路径检查；`McpServer.getMcpServerToken()` 提供 token | MCP 文件工具 sandbox（v1.0.18） |
 | 10 | `pom.xml` + `lib/` | **Netty 4.1.35 → 4.1.137**（模块化升级：netty-all 4.1.137 是空壳，改用 11 个 module jar） | 依赖安全（v1.0.18） |
