@@ -1021,6 +1021,18 @@
       {
         "value": "draft-dspark",
         "label": "dSpark 草稿模型"
+      },
+      {
+        "value": "ngram-simple",
+        "label": "n-gram 前缀匹配（简单）"
+      },
+      {
+        "value": "ngram-map-k",
+        "label": "n-gram 哈希表（K）"
+      },
+      {
+        "value": "ngram-cache",
+        "label": "n-gram 缓存"
       }
     ],
     "sort": 0,
