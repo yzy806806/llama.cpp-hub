@@ -1,7 +1,7 @@
 # FORK.md — yzy806806 fork 维护手册
 
 本文件记录这个 fork 与上游的全部差异、每处差异的原因，以及同步上游时的检查点。
-**改动这里记录的安全代码前必读。** 最近更新：2026-09-10（酒馆改造已回退）。
+**改动这里记录的安全代码前必读。** 最近更新：2026-10-31（llama.cpp 参数表同步到 b11960）。
 
 ---
 
@@ -22,7 +22,27 @@
 ② 上游同步（v0.9.8.3 已合并）
 ③ EasyChat 酒馆改造（2026-09-06 起）→ 已回退（2026-09-10），见下
 ④ 可用性修复（v1.0.26）：目录浏览白名单移除，见下
+⑤ 参数表维护（v1.0.28）：同步 llama.cpp b11960 的 server 参数，见下
 ```
+
+### 参数表维护（v1.0.28）
+
+`src/main/resources/server-params.json` 是 WebUI 参数表单的唯一来源（`/api/models/param/server/list`
+原样下发）。上游 hub 停更后，这张表要跟着 llama.cpp 主线手动同步。
+
+v1.0.28 对比 llama.cpp **b11960**（v0.8.0）：
+
+- **删除** `--mlock`：2026-09-09 起已并入 `--load-mode`（取值 `mlock` / `mmap+mlock`），
+  旧条目留在表里会让新版 llama-server 启动失败。
+- **新增 13 项**：`--fit-ctx`、`--no-kv-offload`、`--cache-reuse`、`--moe-cache-mib`、
+  `--override-tensor`、`--threads-http`、`--prio-batch`、`--poll-batch`、`--no-repack`、
+  `--override-kv`、`--lora`、`--lora-scaled`、`--chat-template-file`。全部
+  `defaultEnabled: false`，不改默认行为。
+- **`--spec-type` 取值**补齐 `ngram-simple` / `ngram-map-k` / `ngram-cache`。
+  `ngram-mod` 与 `ngram-map-k4v` 仍走各自的 LOGIC 开关（`--spec-type_xxx` 由
+  `LlamaServerManager.splitSpecType` 合并成 `--spec-type a,b`，不要改成普通 flag）。
+
+同步口径：新增项必须能在目标二进制的 `--help` 里找到；只剩 CLI 语义的参数不进表。
 
 ### 目录浏览白名单移除（v1.0.26）
 
@@ -205,3 +225,4 @@ git push origin v1.0.(N+1)-security   # 触发自动构建发布
 | 日期 | 文件 | 对象 |
 |------|------|------|
 | 2026-09-07 | `docs/reviews/2026-09-07-opencode-review-v1.0.23.md` | v1.0.23 酒馆调试闭环（**功能已回退**，文档留存供参考） |
+| 2026-10-31 | `docs/reviews/2026-10-31-ocr-review-v1.0.28.md` | v1.0.28 参数表同步到 llama.cpp b11960（13 项新增、删 `--mlock`、spec-type 补 3 个取值） |
