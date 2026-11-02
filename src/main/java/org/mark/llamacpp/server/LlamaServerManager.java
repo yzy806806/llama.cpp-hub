@@ -2195,7 +2195,10 @@ public class LlamaServerManager {
 
 			process.setOutputHandler(line -> {
 				LlamaServer.sendConsoleLineEvent(modelId, line);
-				if (line.contains("llama_server: model loaded") || line.contains("update_slots: all slots are idle")) {
+				// llama.cpp 改过这行日志的前缀：b11756 及更早是 "llama_server: model loaded"，
+				// b11960 起变成 "server_run_i: model loaded"。只匹配前缀会让新版永远等不到就绪，
+				// WebUI 卡在"正在加载"。按消息体匹配，兼容前后两种写法。
+				if (line.contains("model loaded") || line.contains("all slots are idle")) {
 					if (latchResolved.compareAndSet(false, true)) {
 						loadSuccess.set(true);
 						latch.countDown();
