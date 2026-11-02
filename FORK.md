@@ -1,7 +1,7 @@
 # FORK.md — yzy806806 fork 维护手册
 
 本文件记录这个 fork 与上游的全部差异、每处差异的原因，以及同步上游时的检查点。
-**改动这里记录的安全代码前必读。** 最近更新：2026-10-31（llama.cpp 参数表同步到 b11960）。
+**改动这里记录的安全代码前必读。** 最近更新：2026-11-02（就绪检测兼容 llama.cpp b11960 的日志前缀变化）。
 
 ---
 
@@ -23,6 +23,7 @@
 ③ EasyChat 酒馆改造（2026-09-06 起）→ 已回退（2026-09-10），见下
 ④ 可用性修复（v1.0.26）：目录浏览白名单移除，见下
 ⑤ 参数表维护（v1.0.28）：同步 llama.cpp b11960 的 server 参数，见下
+⑥ 就绪检测兼容（v1.0.29）：跟随 llama.cpp 就绪日志前缀变化，见下
 ```
 
 ### 参数表维护（v1.0.28）
@@ -43,6 +44,23 @@ v1.0.28 对比 llama.cpp **b11960**（v0.8.0）：
   `LlamaServerManager.splitSpecType` 合并成 `--spec-type a,b`，不要改成普通 flag）。
 
 同步口径：新增项必须能在目标二进制的 `--help` 里找到；只剩 CLI 语义的参数不进表。
+
+### 就绪检测兼容（v1.0.29）
+
+hub 判断子进程"模型加载完成"不看 API，而是**扫 llama-server 的 stdout**，在
+`LlamaServerManager` 的 output handler 里匹配固定字符串。llama.cpp 改过这行日志的前缀：
+
+```
+b11756 及更早：  srv  llama_server: model loaded
+b11960 起：      srv  server_run_i: model loaded
+```
+
+按前缀匹配会让新版永远等不到就绪：引擎已经 `model loaded` 且开始监听，hub 的
+`/api/models/loaded` 一直是空，WebUI 卡在"正在加载"。
+
+修法：按**消息体**匹配（`model loaded` / `all slots are idle`），不绑前缀。
+以后上游再换前缀也不用改。**排查这类问题的判据**：引擎日志里有 `model loaded`
++ `listening on`，而 `/api/models/loaded` 返回空，就是就绪检测没命中，不是加载失败。
 
 ### 目录浏览白名单移除（v1.0.26）
 
@@ -226,3 +244,4 @@ git push origin v1.0.(N+1)-security   # 触发自动构建发布
 |------|------|------|
 | 2026-09-07 | `docs/reviews/2026-09-07-opencode-review-v1.0.23.md` | v1.0.23 酒馆调试闭环（**功能已回退**，文档留存供参考） |
 | 2026-10-31 | `docs/reviews/2026-10-31-ocr-review-v1.0.28.md` | v1.0.28 参数表同步到 llama.cpp b11960（13 项新增、删 `--mlock`、spec-type 补 3 个取值） |
+| 2026-11-02 | `docs/reviews/2026-11-02-ocr-review-v1.0.29.md` | v1.0.29 就绪检测改为按消息体匹配，兼容 b11960 的 `server_run_i:` 前缀 |
