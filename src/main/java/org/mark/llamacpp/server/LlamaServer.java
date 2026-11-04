@@ -1813,8 +1813,15 @@ public class LlamaServer {
 	
 	/**
 	 * 	Windows 重启功能：先停止 Web 服务（释放端口 + 断开远程节点），
-	 * 	再停止全部模型，最后通过 ProcessBuilder 自举一个新 JVM 进程
-	 * 	并退出当前 JVM。使用 RESTART_LOCK 防止并发调用。
+	 * 	再停止全部模型，最后拉起一个新的进程并退出当前 JVM。
+	 *
+	 * 	优先复用原生启动器（llama.cpp-hub.exe）重新拉起：启动器会自己读
+	 * 	launcher.conf，不会把 JVM 参数一层层叠加。旧实现用
+	 * 	ManagementFactory.getInputArguments() 重建 java 命令行，在多次重启后
+	 * 	参数会累积（实测出现过 725 个参数、39401 字符），超过 Windows
+	 * 	32767 字符上限后 CreateProcess 报 error=206，导致重启失败且服务已停。
+	 *
+	 * 	使用 RESTART_LOCK 防止并发调用。
 	 */
 	public static void restartApplication() {
 		synchronized (RESTART_LOCK) {
@@ -1830,22 +1837,19 @@ public class LlamaServer {
 				LlamaServerManager.getInstance().shutdownAll();
 
 				// 3. 拉起新进程
-				RuntimeMXBean mx = ManagementFactory.getRuntimeMXBean();
-				List<String> jvmArgs = mx.getInputArguments();
-				String classpath = System.getProperty("java.class.path");
-				boolean isWindows = System.getProperty("os.name").toLowerCase().startsWith("windows");
-				String javaBin = System.getProperty("java.home") + File.separator + "bin"
-						+ File.separator + (isWindows ? "java.exe" : "java");
-
-				List<String> cmd = new ArrayList<>();
-				cmd.add(javaBin);
-				cmd.addAll(jvmArgs);
-				cmd.add("-classpath");
-				cmd.add(classpath);
-				cmd.add("org.mark.llamacpp.server.LlamaServer");
-
-				new ProcessBuilder(cmd).inheritIO().start();
-				logger.info("重启进程已启动");
+				File workDir = new File(System.getProperty("user.dir"));
+				String launcher = findNativeLauncher(workDir);
+				ProcessBuilder pb;
+				if (launcher != null) {
+					// 原生启动器：自己读 launcher.conf，参数不会叠加
+					pb = new ProcessBuilder(launcher).directory(workDir);
+				} else {
+					// 兜底：仅在没有原生启动器时重建 java 命令行
+					pb = new ProcessBuilder(buildJavaRestartCommand())
+							.directory(workDir).inheritIO();
+				}
+				pb.start();
+				logger.info("重启进程已启动: {}", launcher != null ? launcher : "java（参数已去重）");
 			} catch (Exception e) {
 				// 失败了就别重启了
 				logger.error("重启失败", e);
@@ -1853,6 +1857,79 @@ public class LlamaServer {
 			}
 			System.exit(0);
 		}
+	}
+
+	/**
+	 * 	查找原生启动器可执行文件。
+	 * 	优先用当前进程自身的可执行文件（当 hub 由 llama.cpp-hub.exe 启动时，
+	 * 	它就是启动器）；否则在工作目录里按常见名字查找。
+	 *
+	 * @return 启动器路径，找不到返回 null
+	 */
+	private static String findNativeLauncher(File workDir) {
+		String self = null;
+		try {
+			self = ProcessHandle.current().info().command().orElse(null);
+		} catch (Throwable ignore) {
+			// 某些 JVM 实现不支持 ProcessHandle，忽略
+		}
+		if (self != null && !self.isEmpty()) {
+			String lower = self.toLowerCase(Locale.ROOT);
+			if (!lower.endsWith("java.exe") && !lower.endsWith("javaw.exe") && !lower.endsWith(File.separator + "java")) {
+				File f = new File(self);
+				if (f.isFile()) {
+					return f.getAbsolutePath();
+				}
+			}
+		}
+		String[] names = { "llama.cpp-hub.exe", "llama-cpp-hub.exe", "launcher.exe" };
+		for (String name : names) {
+			File f = new File(workDir, name);
+			if (f.isFile()) {
+				return f.getAbsolutePath();
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * 	兜底路径：用当前 JVM 参数重建 java 命令。
+	 * 	对参数去重，并剔除会随重启累积的 -Djava.class.path / -Dsun.java.* 项；
+	 * 	重建后仍超过 Windows 命令行长度上限则拒绝重启，避免半死状态。
+	 */
+	private static List<String> buildJavaRestartCommand() throws IOException {
+		boolean isWindows = System.getProperty("os.name").toLowerCase(Locale.ROOT).startsWith("windows");
+		String javaBin = System.getProperty("java.home") + File.separator + "bin"
+				+ File.separator + (isWindows ? "java.exe" : "java");
+		String classpath = System.getProperty("java.class.path");
+
+		List<String> cmd = new ArrayList<>();
+		cmd.add(javaBin);
+		java.util.LinkedHashSet<String> unique = new java.util.LinkedHashSet<>();
+		for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+			if (arg == null || arg.isEmpty()) {
+				continue;
+			}
+			if (arg.startsWith("-Djava.class.path=")
+					|| arg.startsWith("-Dsun.java.command=")
+					|| arg.startsWith("-Dsun.java.launcher=")) {
+				continue;
+			}
+			unique.add(arg);
+		}
+		cmd.addAll(unique);
+		cmd.add("-classpath");
+		cmd.add(classpath);
+		cmd.add("org.mark.llamacpp.server.LlamaServer");
+
+		int total = 0;
+		for (String s : cmd) {
+			total += s.length() + 1;
+		}
+		if (isWindows && total > 30000) {
+			throw new IOException("重建的命令行过长（" + total + " 字符），请手动关闭并重新启动程序");
+		}
+		return cmd;
 	}
 
 	/**

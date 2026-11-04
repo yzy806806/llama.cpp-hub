@@ -1,7 +1,7 @@
 # FORK.md — yzy806806 fork 维护手册
 
 本文件记录这个 fork 与上游的全部差异、每处差异的原因，以及同步上游时的检查点。
-**改动这里记录的安全代码前必读。** 最近更新：2026-11-02（就绪检测兼容 llama.cpp b11960 的日志前缀变化）。
+**改动这里记录的安全代码前必读。** 最近更新：2026-11-04（托盘重启改为复用原生启动器，修复命令行长溢出导致的重启失败）。
 
 ---
 
@@ -24,6 +24,7 @@
 ④ 可用性修复（v1.0.26）：目录浏览白名单移除，见下
 ⑤ 参数表维护（v1.0.28）：同步 llama.cpp b11960 的 server 参数，见下
 ⑥ 就绪检测兼容（v1.0.29）：跟随 llama.cpp 就绪日志前缀变化，见下
+⑦ 托盘重启修复（v1.0.30）：重启改为复用原生启动器，见下
 ```
 
 ### 参数表维护（v1.0.28）
@@ -44,6 +45,37 @@ v1.0.28 对比 llama.cpp **b11960**（v0.8.0）：
   `LlamaServerManager.splitSpecType` 合并成 `--spec-type a,b`，不要改成普通 flag）。
 
 同步口径：新增项必须能在目标二进制的 `--help` 里找到；只剩 CLI 语义的参数不进表。
+
+### 托盘重启修复（v1.0.30）
+
+托盘菜单的「重启」旧实现用 `ManagementFactory.getInputArguments()` 把当前 JVM 的
+输入参数原样传给新进程。长跑后这份参数列表会累积（实测 725 个参数 / 39,401 字符，
+其中 `-Xlockword` 重复 21 次），超过 Windows 命令行 32,767 字符上限后
+`CreateProcess` 报 `error=206 文件名或扩展名太长`：
+
+```
+2026-11-04 08:50:50.896  准备重启程序...
+2026-11-04 08:50:50.918  重启失败
+java.io.IOException: Cannot run program "...\jre\bin\java.exe":
+  CreateProcess error=206, 文件名或扩展名太长。
+    at LlamaServer.restartApplication(LlamaServer.java:1847)
+```
+
+失败时 Web 服务已经关闭、旧进程还活着，状态是「进程在、服务没了」，表象像崩溃。
+
+修法（`restartApplication()`）：
+
+1. 先用 `ProcessHandle.current().info().command()` 取自身可执行文件。Windows 上 hub
+   由 `llama.cpp-hub.exe` 启动，直接 `new ProcessBuilder(launcher).start()` 重新拉起
+   启动器即可——启动器会重读 `launcher.conf`，JVM 参数从零生成，不会累积。
+2. 拿不到启动器（进程确实是 `java.exe`）才回退到重建 java 命令：用 `LinkedHashSet`
+   去重，并剔除 `-Djava.class.path=` / `-Dsun.java.command=` / `-Dsun.java.launcher=`
+   这三项累积源；重建后长度 > 30,000 字符直接抛错让用户手动重启，不再留半死状态。
+
+部署注意：只改 `LlamaServer.java`，编译后覆盖目标机
+`classes/org/mark/llamacpp/server/LlamaServer*.class`（内层类一并覆盖），先备份到
+`classes-backup-<date>/`。**运行中的 JVM 仍持旧字节码**，必须手动重启一次 hub 新代码
+才生效，之后托盘重启才走新路径。
 
 ### 就绪检测兼容（v1.0.29）
 
@@ -245,3 +277,4 @@ git push origin v1.0.(N+1)-security   # 触发自动构建发布
 | 2026-09-07 | `docs/reviews/2026-09-07-opencode-review-v1.0.23.md` | v1.0.23 酒馆调试闭环（**功能已回退**，文档留存供参考） |
 | 2026-10-31 | `docs/reviews/2026-10-31-ocr-review-v1.0.28.md` | v1.0.28 参数表同步到 llama.cpp b11960（13 项新增、删 `--mlock`、spec-type 补 3 个取值） |
 | 2026-11-02 | `docs/reviews/2026-11-02-ocr-review-v1.0.29.md` | v1.0.29 就绪检测改为按消息体匹配，兼容 b11960 的 `server_run_i:` 前缀 |
+| 2026-11-04 | `docs/reviews/2026-11-04-ocr-review-v1.0.30.md` | v1.0.30 托盘重启改为复用原生启动器，避免 JVM 参数累积导致 CreateProcess 206 |
