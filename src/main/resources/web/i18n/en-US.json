@@ -2396,6 +2396,8 @@
   "param.server.cache_reuse.desc": "--cache-reuse: minimum chunk size for reusing the cache via KV shifting (tokens, default 0 = off; needs prompt caching).",
   "param.server.moe_cache_mib.name": "MoE expert GPU cache",
   "param.server.moe_cache_mib.desc": "--moe-cache-mib: MiB of VRAM kept as a cache for MoE experts that live on the CPU (default 0 = off). Split across GPUs like --tensor-split.",
+  "param.server.moe_cache_cpu_share.name": "MoE cache CPU share",
+  "param.server.moe_cache_cpu_share.desc": "--moe-cache-cpu-share: share from 0 to 1 of the MoE cache misses that the CPU computes from the host experts instead of uploading them to the GPU once the cache is full (default 0 = off). Needs llama.cpp 1.0 or newer.",
   "param.server.override_tensor.name": "Per-tensor buffer type",
   "param.server.override_tensor.desc": "--override-tensor / -ot: override the buffer type per tensor name pattern (pattern=type, comma-separated). Finer than --n-cpu-moe.",
   "param.server.threads_http.name": "HTTP threads",

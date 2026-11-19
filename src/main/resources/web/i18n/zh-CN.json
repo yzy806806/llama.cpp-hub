@@ -2396,6 +2396,8 @@
   "param.server.cache_reuse.desc": "--cache-reuse：开启后按 KV shifting 复用前缀缓存，值为尝试复用的最小块大小（单位 token，默认 0 = 关闭，需先开启 prompt 缓存）。适合多轮对话、固定系统提示词场景。",
   "param.server.moe_cache_mib.name": "MoE 专家显存缓存",
   "param.server.moe_cache_mib.desc": "--moe-cache-mib：为放在 CPU 上的 MoE 专家保留的显存缓存大小（MiB，默认 0 = 关闭）。多卡时按 --tensor-split 分摊。这是 35B-A3B 这类混合专家模型在显存不足时的核心提速项。",
+  "param.server.moe_cache_cpu_share.name": "MoE 缓存 CPU 份额",
+  "param.server.moe_cache_cpu_share.desc": "--moe-cache-cpu-share：缓存满后，MoE 未命中中由 CPU 直接在内存专家上计算、而不上传到显卡的比例（0 到 1，默认 0 = 不用）。需要 llama.cpp 1.0 或更新版本。",
   "param.server.override_tensor.name": "按张量指定后端",
   "param.server.override_tensor.desc": "--override-tensor / -ot：按张量名模式指定缓冲区类型，例如把某类专家权重放到 CPU（格式：模式=类型，多个用逗号分隔）。比 --n-cpu-moe 的按层粗调更精确。",
   "param.server.threads_http.name": "HTTP 线程数",

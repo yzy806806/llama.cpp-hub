@@ -1,7 +1,7 @@
 # FORK.md — yzy806806 fork 维护手册
 
 本文件记录这个 fork 与上游的全部差异、每处差异的原因，以及同步上游时的检查点。
-**改动这里记录的安全代码前必读。** 最近更新：2026-11-04（托盘重启改为复用原生启动器，修复命令行长溢出导致的重启失败）。
+**改动这里记录的安全代码前必读。** 最近更新：2026-11-20（参数表对齐 llama.cpp v1.0.0：补 `f8_e4m3` KV 类型与 `--moe-cache-cpu-share`）。
 
 ---
 
@@ -25,6 +25,7 @@
 ⑤ 参数表维护（v1.0.28）：同步 llama.cpp b11960 的 server 参数，见下
 ⑥ 就绪检测兼容（v1.0.29）：跟随 llama.cpp 就绪日志前缀变化，见下
 ⑦ 托盘重启修复（v1.0.30）：重启改为复用原生启动器，见下
+⑧ 参数表对齐 llama.cpp v1.0.0（v1.0.31）：补 FP8 KV 与 MoE 缓存 CPU 份额，见下
 ```
 
 ### 参数表维护（v1.0.28）
@@ -45,6 +46,58 @@ v1.0.28 对比 llama.cpp **b11960**（v0.8.0）：
   `LlamaServerManager.splitSpecType` 合并成 `--spec-type a,b`，不要改成普通 flag）。
 
 同步口径：新增项必须能在目标二进制的 `--help` 里找到；只剩 CLI 语义的参数不进表。
+
+### 参数表维护（v1.0.31，llama.cpp v1.0.0）
+
+llama.cpp 于 2026-11-13 打了 **v1.0.0** 标签（build b12359，commit b1b770d9），当前主线已到 b12542。
+v1.0.0 删除了 35 个 deprecated 的 `llama.h` 函数、把 NextN API 提升进主头文件、移除
+`defrag_thold` / `--defrag-thold`，并新增 FP8 KV、MoE 缓存 CPU 份额、外部 PLE 分片等。
+
+**hub 不受 C API 改动影响**：hub 是 JVM 进程，只负责 spawn `llama-server` 和 HTTP 转发，
+不链接 libllama。兼容性只看 CLI 参数名与 HTTP 端点两样。
+
+#### 核对方法（可复现）
+
+下载官方 v1.0.0 的 Linux x64 二进制，用 `llama-server --help` 取全部接受参数，
+与本表逐条比对，再把 hub 的默认启用参数和一批按需参数原样喂给该二进制：
+
+```
+# 默认启用集 + 按需集一起喂，确认没有 invalid argument
+llama-server -m /tmp/x.gguf --port 59999 --ctx-size 8192 --fit on --flash-attn on \
+  --load-mode dio --ctx-checkpoints 32 -b 2048 -ub 512 --no-webui --spec-type none \
+  -ctk f16 -ctv f16 --cache-ram 8192 --cache-reuse 0 --parallel 4 --threads-http -1 \
+  --prio-batch 0 --poll-batch 1 --moe-cache-mib 0 --n-cpu-moe 0 --n-cpu-ffn 0 \
+  --lazy-mode auto --no-kv-offload --split-mode none --numa distribute \
+  --spec-draft-n-max 3 --spec-draft-n-min 0 --spec-draft-p-min 0.0 --spec-draft-p-split 0.1
+```
+
+结果：**95 条参数零删除、零改名**，唯一报错是模型文件不存在。两个内部伪参数
+`--spec-type_ngram-mod` / `--spec-type_ngram-map-k4v` 仍由 `splitSpecType()` 合并成
+`--spec-type a,b`，这两个值在 v1.0 的合法列表里仍在。
+
+#### v1.0.31 改了什么
+
+- **`-ctk` / `-ctv` / `-ctkd` / `-ctvd` 取值补 `f8_e4m3`**：v1.0 新增的 FP8 KV 缓存
+  （`allowed values: f32, f16, bf16, f8_e4m3, q8_0, ...`），四条列表一致补齐。
+- **新增 `--moe-cache-cpu-share`**（FLOAT，0–1，默认 0，`defaultEnabled: false`）：
+  缓存满后，MoE 未命中由 CPU 直接在内存专家上计算、而不是上传到显卡的比例。
+  需要 llama.cpp 1.0+；对 35B-A3B 这类 CPU/GPU 混跑的 MoE 是新的调优旋钮。
+- **`--spec-type` 无需改动**：`draft-dspark` / `ngram-cache` 已在取值列表里。
+
+#### 已知行为变化（不是参数不兼容）
+
+- `--media-allow-private-urls` 默认关闭：媒体 URL 指向局域网或私有地址会被拒。
+- 视觉模型加载新增要求（projector、patch embedding、2×2 spatial merge）：老 mmproj 可能加载失败。
+  **7840H 上 Occamy 的 `mmproj-Q8_0.gguf` 是从别的 release 拿的，升级 llama-server 前先单独验一次加载。**
+- `--no-webui` 变成 deprecated 别名（仍可用，日志建议改 `--no-ui`）。
+- `--port` 默认 8080 → 9931：hub 总是显式传 `--port`，不受影响。
+- 就绪检测不受影响：v1.0 仍在 `tools/server/server.cpp` 打印 `model loaded`，hub 用 `contains` 匹配。
+
+#### 仍未暴露的 1.0 参数（按需再加）
+
+`--api-key-file`、`--cors-origins/headers/methods/credentials`、`--sleep-idle-seconds`、
+`--cache-idle-slots`、`--ple` / `--shard`、`--mtmd-batch-max-tokens`、`--reasoning-budget-message`。
+路由式多模型（`--models-dir` / `--models-preset`）与 hub 自己的模型管理重复，不跟。
 
 ### 托盘重启修复（v1.0.30）
 
